@@ -915,7 +915,7 @@ function mahoraga(a, b) {
   // 站在使用者旁邊（手的另一側），不要擋住人
   const st = shikiState.maho, hx = (a.c.x + b.c.x) / 2;
   if (st.sideAt !== st.start) { st.side = hx < W / 2 ? 1 : -1; st.sideAt = st.start; }
-  const base = H + M * .02, x = W / 2 + st.side * W * .26, art = ART.mahoraga, s = (H * .9) / art.img.height;
+  const base = H + M * .02, x = W / 2 + st.side * W * .26, art = ART.mahoraga, s = (H * 1.05) / art.img.height;
   inkPool(x, base - M * .02, W * .3, M * .1);
   const rise = (1 - ease) * art.img.height * s;
   D.save(); D.beginPath(); D.rect(0, 0, W, base - M * .03); D.clip();
@@ -927,7 +927,7 @@ function mahoraga(a, b) {
   const step = Math.floor(ms / 1600), frac = Math.min(1, (ms % 1600) / 250);
   const rot = (step + (1 - Math.pow(1 - frac, 3))) * TAU / 8;
   const wr = ART.wheel, ws = 150 * s / wr.r;
-  const wy = base + rise + (art.headY - 250) * s;
+  const wy = base + rise + art.wheelY * s;
   if (ms > 900) {
     D.save(); D.translate(x, wy); D.rotate(rot); D.scale(ws, ws); D.drawImage(wr.img, -wr.size / 2, -wr.size / 2); D.restore();
     glow(L, x, wy, M * .3, [[0, "rgba(255,230,160,.25)"], [1, "rgba(0,0,0,0)"]]);
