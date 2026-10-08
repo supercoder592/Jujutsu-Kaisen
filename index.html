@@ -42,7 +42,7 @@
 <video id="video" autoplay playsinline muted></video>
 <canvas id="main"></canvas>
 <svg width="0" height="0" style="position:absolute">
-  <filter id="gooEdge"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 28 -9"/><feMorphology operator="dilate" radius="5"/></filter>
+  <filter id="gooEdge"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 28 -9"/><feMorphology operator="dilate" radius="4"/><feComponentTransfer><feFuncA type="linear" slope="3"/></feComponentTransfer></filter>
   <filter id="gooFill"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -9"/></filter>
 </svg>
 <div class="bar" id="barT"></div><div class="bar" id="barB"></div>
@@ -420,11 +420,12 @@ function infiniteVoid() {
 // ================= 虎杖：咒力包覆 + 黑閃 =================
 // 咒力像黏稠液體包覆整隻手：外圈黑色輪廓（黑色層）+ 內部紅色發光（亮層）
 function gooBlob(x, y, r) {
-  G.fillStyle = "rgb(225,15,35)"; G.beginPath(); G.arc(x, y, r, 0, TAU); G.fill();
+  G.fillStyle = "rgb(235,10,30)"; G.beginPath(); G.arc(x, y, r, 0, TAU); G.fill();
 }
 function flushGoo() {
   D.filter = "url(#gooEdge)"; D.drawImage(gooC, 0, 0); D.filter = "none";
-  L.globalAlpha = .88; L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; L.globalAlpha = 1;
+  D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none";
+  L.globalAlpha = .35; L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; L.globalAlpha = 1;
   G.clearRect(0, 0, W, H);
 }
 const auraState = {};
@@ -432,18 +433,18 @@ function cursedAura(h, power = 1) {
   setGrade("rgba(90,0,10,.35)", .45 + .1 * power, .6);
   const pts = h.pts, size = dist(pts[0], pts[9]);
   const st = auraState[h.key] || (auraState[h.key] = {
-    strands: Array.from({ length: 9 }, (_, k) => ({ i: [4, 8, 12, 16, 20, 5, 9, 13, 17][k], ph: Math.random() * TAU, len: rnd(1.2, 2.4) }))
+    strands: Array.from({ length: 9 }, (_, k) => ({ i: [4, 8, 12, 16, 20, 5, 9, 13, 17][k], ph: Math.random() * TAU, len: rnd(.7, 1.4) }))
   });
   // 1. 手的本體被一團咒力包住
   const blobs = [];
   for (let i = 0; i < 21; i++) {
     const wob = 1 + .18 * Math.sin(t * .22 + i * 1.7) * power;
-    blobs.push([pts[i].x, pts[i].y, size * (i === 0 || i === 9 ? .42 : .3) * wob]);
+    blobs.push([pts[i].x, pts[i].y, size * (i === 0 || i === 9 ? .3 : .21) * wob]);
   }
   for (let i = 0; i < 20; i++) {    // 關節之間補上，讓輪廓連成一整團
     const a = pts[i], b = pts[i + 1];
     if ([4, 8, 12, 16].includes(i)) continue;
-    blobs.push([(a.x + b.x) / 2, (a.y + b.y) / 2, size * .27]);
+    blobs.push([(a.x + b.x) / 2, (a.y + b.y) / 2, size * .19]);
   }
   // 2. 往上飄的觸手（火焰狀）
   const tendril = [];
@@ -451,16 +452,16 @@ function cursedAura(h, power = 1) {
     const o = pts[s.i], L0 = size * s.len * (1 + .3 * power);
     for (let k = 1; k <= 12; k++) {
       const f = k / 12;
-      tendril.push([o.x + Math.sin(t * .12 + s.ph + f * 3) * size * .35 * f, o.y - L0 * f, size * .26 * (1 - f * .8)]);
+      tendril.push([o.x + Math.sin(t * .12 + s.ph + f * 3) * size * .22 * f, o.y - L0 * f, size * .17 * (1 - f * .8)]);
     }
   }
   for (const [x, y, r] of tendril) gooBlob(x, y, r * 1.2);
   for (const [x, y, r] of blobs) gooBlob(x, y, r);
-  glow(L, h.c.x, h.c.y, size * .9, [[0, "rgba(255,230,230,.8)"], [.5, "rgba(255,60,60,.4)"], [1, "rgba(0,0,0,0)"]]);
+  glow(L, h.c.x, h.c.y, size * .55, [[0, "rgba(255,200,200,.5)"], [.5, "rgba(255,40,40,.25)"], [1, "rgba(0,0,0,0)"]]);
   // 3. 甩出的咒力水滴
   for (let k = 0; k < 2 * power; k++) {
     const p = pts[(Math.random() * 21) | 0], a = rnd(-Math.PI, 0);
-    spawn({ goo: 1, x: p.x, y: p.y, vx: Math.cos(a) * rnd(1, 4) * power, vy: Math.sin(a) * rnd(1, 4) * power - 1, w: size * rnd(.07, .15), decay: .03 });
+    spawn({ goo: 1, x: p.x, y: p.y, vx: Math.cos(a) * rnd(1, 4) * power, vy: Math.sin(a) * rnd(1, 4) * power - 1, w: size * rnd(.04, .08), decay: .035 });
   }
   // 4. 內部閃爍的紅色電流
   if (Math.random() < .5 * power) bolt(L, h.c.x, h.c.y, size * rnd(.6, 1.2), "rgba(255,180,180,.9)", 1.5, 5);
@@ -472,14 +473,14 @@ function blackFlash(h) {
   flashes[h.key] = { n: 18, c: { ...h.c } };
   shake = 30;
   for (let k = 0; k < 70; k++) {
-    const a = Math.random() * TAU, v = rnd(8, 32);
+    const a = Math.random() * TAU, v = rnd(6, 20);
     spawn({ x: h.c.x, y: h.c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, color: Math.random() < .5 ? "#f11" : "#fff", w: rnd(2, 4), decay: .04 });
   }
   for (let k = 0; k < 14; k++) {
     const a = Math.random() * TAU, v = rnd(5, 16);
-    spawn({ goo: 1, x: h.c.x, y: h.c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, w: M * rnd(.012, .03), decay: .025 });
+    spawn({ goo: 1, x: h.c.x, y: h.c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, w: M * rnd(.008, .018), decay: .03 });
   }
-  ring(h.c.x, h.c.y, "#f22", 38, 10); ring(h.c.x, h.c.y, "#fff", 26, 3);
+  ring(h.c.x, h.c.y, "#f22", 26, 8); ring(h.c.x, h.c.y, "#fff", 18, 3);
 }
 function drawBlackFlash(key, h) {
   const f = flashes[key]; f.n--;
@@ -488,11 +489,11 @@ function drawBlackFlash(key, h) {
   grade.invert = grade.invert || f.n > 13;
   setGrade("rgba(255,0,0,.4)", .8, 0);
   speedLines(D, c.x, c.y, "#000", 70, .08);
-  for (let k = 0; k < 10; k++) bolt(D, c.x, c.y, M * rnd(.3, .8), "#000", rnd(6, 14), 9);
-  for (let k = 0; k < 10; k++) bolt(L, c.x, c.y, M * rnd(.3, .8), "#f11", rnd(2, 4), 9);
+  for (let k = 0; k < 8; k++) bolt(D, c.x, c.y, M * rnd(.18, .45), "#000", rnd(6, 12), 8);
+  for (let k = 0; k < 8; k++) bolt(L, c.x, c.y, M * rnd(.18, .45), "#f11", rnd(2, 3), 8);
   if (h) cursedAura(h, 2.2);
-  glow(L, c.x, c.y, M * .14, [[0, "#fff"], [.3, "#f22"], [1, "rgba(80,0,0,0)"]]);
-  flare(c.x, c.y, "#f11", 1.3, rnd(-.3, .3));
+  glow(L, c.x, c.y, M * .09, [[0, "#fff"], [.3, "#f22"], [1, "rgba(80,0,0,0)"]]);
+  flare(c.x, c.y, "#f11", .9, rnd(-.3, .3));
   if (f.n <= 0) delete flashes[key];
 }
 
