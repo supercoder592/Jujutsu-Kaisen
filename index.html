@@ -716,8 +716,8 @@ function flushGoo() {
   stampOutline(RG, fillC, "#000", Math.max(6, M * .013));
   RG.globalCompositeOperation = "destination-out"; RG.drawImage(fillC, 0, 0); RG.globalCompositeOperation = "source-over";
   D.drawImage(ringC, 0, 0);
-  D.globalAlpha = .5; D.drawImage(fillC, 0, 0); D.globalAlpha = 1;      // 紅色半透明
-  L.globalAlpha = .15; L.drawImage(fillC, 0, 0); L.globalAlpha = 1;
+  D.globalAlpha = .35; D.drawImage(fillC, 0, 0); D.globalAlpha = 1;     // 紅色半透明，看得到手
+  L.globalAlpha = .08; L.drawImage(fillC, 0, 0); L.globalAlpha = 1;
   G.clearRect(0, 0, W, H); gooUsed = false;
   }
   if (curseUsed) {
@@ -747,33 +747,38 @@ function flushGoo() {
   gooUsed = shadowUsed = false;
 }
 const auraState = {};
-// 咒力：從手的外圍不斷冒出的火焰。粒子邊往上飄邊扭動、縮小，在液體圖層裡融成一條條火舌
-const HAND_RING = [0, 1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 17, 13, 9, 5];
+// 咒力：一顆把整隻手包在裡面的圓（比手大一圈），邊緣像火焰一樣起伏，上緣冒出細細的火苗
 function cursedAura(h, power = 1) {
   setGrade("rgba(90,0,10,.35)", .45 + .1 * power, .6);
-  const pts = h.pts, size = dist(pts[0], pts[9]), c = h.c, k = size / 90;
-  // 貼著手緣的一圈底火（讓火焰看起來是從手上長出來的）
-  for (const i of HAND_RING) {
-    const p = pts[i], ox = (p.x - c.x) * .18, oy = (p.y - c.y) * .18;
-    gooBlob(p.x + ox, p.y + oy, size * (.075 + .02 * Math.sin(t * .3 + i)) * (1 + .2 * (power - 1)));
+  const pts = h.pts, size = dist(pts[0], pts[9]), k = size / 90;
+  // 圓心取整隻手的中心，半徑 = 最遠的關節 × 1.3
+  let cx = 0, cy = 0; for (const p of pts) { cx += p.x; cy += p.y; } cx /= pts.length; cy /= pts.length;
+  let far = 0; for (const p of pts) far = Math.max(far, Math.hypot(p.x - cx, p.y - cy));
+  const st = auraState[h.key] || (auraState[h.key] = { r: far * 1.3, x: cx, y: cy });
+  st.r += (Math.max(far * 1.3, size * .95) * (1 + .12 * (power - 1)) - st.r) * .3;   // 半徑平滑，不會忽大忽小
+  st.x += (cx - st.x) * .6; st.y += (cy - st.y) * .6;
+  const R = st.r, now = performance.now() / 1000;
+  gooBlob(st.x, st.y, R * .9);
+  // 邊緣的起伏：一圈小圓沿著圓周慢慢轉，大小各自閃動
+  const N = 18;
+  for (let j = 0; j < N; j++) {
+    const a = j / N * TAU + now * .6;
+    const bump = R * (.1 + .035 * Math.sin(now * 5 + j * 2.3) * power);
+    gooBlob(st.x + Math.cos(a) * R * .86, st.y + Math.sin(a) * R * .86, bump);
   }
-  // 往上竄的火舌：手緣上幾個固定的噴口，各自連續吐出粒子，連起來就是一條會晃動的火舌
-  const st = auraState[h.key] || (auraState[h.key] = { em: [4, 8, 12, 16, 20, 2, 0, 17].map(i => ({ i, ph: rnd(0, TAU), f: rnd(.08, .16) })) });
-  for (const e of st.em) {
-    const p = pts[e.i], dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy) || 1;
-    const flick = .55 + .45 * Math.sin(t * e.f + e.ph);
+  // 上緣冒出的火苗
+  for (let j = 0; j < Math.round(2 * power); j++) {
+    const a = rnd(-Math.PI * .85, -Math.PI * .15);
     spawn({
-      flame: 1, x: p.x + dx / d * size * .1, y: p.y + dy / d * size * .1,
-      vx: dx / d * .6 * k, vy: -(2.2 + 1.8 * flick) * k * power,
-      rise: .17 * k, sway: (.5 + .5 * flick) * k, ph: t * .25 + e.ph,
-      w: size * (.045 + .05 * flick) * (.8 + .3 * power), decay: .045 + .02 * (1 - flick)
+      flame: 1, x: st.x + Math.cos(a) * R * .9, y: st.y + Math.sin(a) * R * .9,
+      vx: Math.cos(a) * .5 * k, vy: -(1.5 + rnd(0, 1.5)) * k * power,
+      rise: .12 * k, sway: rnd(.3, .8) * k, ph: rnd(0, TAU), w: R * rnd(.08, .13), decay: rnd(.05, .08)
     });
   }
-  glow(L, c.x, c.y, size * .7, [[0, "rgba(255,120,120,.28)"], [.6, "rgba(255,20,40,.12)"], [1, "rgba(0,0,0,0)"]]);
-  // 偶爾竄過手的紅色電流
+  glow(L, st.x, st.y, R * 1.1, [[0, "rgba(255,120,120,.12)"], [.7, "rgba(255,20,40,.06)"], [1, "rgba(0,0,0,0)"]]);
   if (Math.random() < .25 * power) {
-    const a = pts[HAND_RING[(Math.random() * HAND_RING.length) | 0]], b = pts[HAND_RING[(Math.random() * HAND_RING.length) | 0]];
-    boltPath(L, [a, { x: (a.x + b.x) / 2 + rnd(-.3, .3) * size, y: (a.y + b.y) / 2 + rnd(-.3, .3) * size }, b], "rgba(255,170,170,.85)", 1.3);
+    const a = rnd(0, TAU), b = a + rnd(.8, 2);
+    boltPath(L, [{ x: st.x + Math.cos(a) * R * .8, y: st.y + Math.sin(a) * R * .8 }, { x: st.x + rnd(-.3, .3) * R, y: st.y + rnd(-.3, .3) * R }, { x: st.x + Math.cos(b) * R * .8, y: st.y + Math.sin(b) * R * .8 }], "rgba(255,170,170,.85)", 1.3);
   }
 }
 
