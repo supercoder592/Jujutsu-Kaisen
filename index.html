@@ -52,7 +52,7 @@
 <div id="name"></div>
 <div id="hud"></div>
 <div id="guide">
-  <i>五條悟</i><br>
+  <i>五條悟</i>（使用時自動戴上眼罩）<br>
   <b>手張開</b> 蒼　<b>伸食指</b> 赫　（<b>揮手</b> 發射）<br>
   <b>單手手指半彎（抓球）</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>用力揮出</b> 發射<br>
   <b>雙手比 YA</b> 領域展開・無量空處<br>
@@ -78,7 +78,7 @@
 </div>
 
 <script type="module">
-import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+import { HandLandmarker, FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
 const video = document.getElementById("video");
 const cv = document.getElementById("main");
@@ -99,7 +99,7 @@ function resize() {
 addEventListener("resize", resize); resize();
 addEventListener("keydown", e => { if (e.key.toLowerCase() === "h") document.getElementById("guide").classList.toggle("show"); });
 
-let landmarker;
+let landmarker, faceLandmarker = null;
 document.getElementById("btn").onclick = async () => {
   statusEl.textContent = "載入模型中…";
   try {
@@ -116,8 +116,66 @@ document.getElementById("btn").onclick = async () => {
     await video.play();
     document.getElementById("start").remove();
     requestAnimationFrame(loop);
+    // 臉部偵測（眼罩用）：背景載入，失敗也不影響手勢
+    FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+        delegate: "GPU"
+      },
+      runningMode: "VIDEO", numFaces: 1
+    }).then(f => faceLandmarker = f).catch(() => {});
   } catch (e) { statusEl.textContent = "錯誤：" + e.message; }
 };
+
+
+// ================= 五條悟的眼罩 =================
+const blind = { want: false, alpha: 0, face: null };
+function detectFace() {
+  const r = faceLandmarker.detectForVideo(video, performance.now() + 1);
+  const lm = r.faceLandmarks?.[0];
+  if (!lm) { blind.face = null; return; }
+  const idx = [33, 133, 362, 263, 127, 356, 105, 334, 145, 374];
+  const pts = {};
+  for (const i of idx) {
+    const p = toScreen(lm[i]), old = blind.face?.[i];
+    pts[i] = old ? { x: old.x + (p.x - old.x) * .5, y: old.y + (p.y - old.y) * .5 } : p;
+  }
+  blind.face = pts;
+}
+function drawBlindfold() {
+  blind.alpha += ((blind.want && blind.face ? 1 : 0) - blind.alpha) * .2;
+  if (blind.alpha < .02 || !blind.face) return;
+  const f = blind.face;
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const eL = mid(f[33], f[133]), eR = mid(f[362], f[263]);
+  let ux = eR.x - eL.x, uy = eR.y - eL.y; const n = Math.hypot(ux, uy) || 1; ux /= n; uy /= n;
+  const nx = -uy, ny = ux;                                   // 垂直於眼睛連線
+  const c = mid(eL, eR);
+  const half = Math.max(dist(c, f[127]), dist(c, f[356])) * 1.08;
+  const h = Math.max(dist(eL, f[105]), dist(eR, f[334])) * 1.05;   // 從眉毛蓋到眼睛下方
+  const lo = Math.max(dist(eL, f[145]), dist(eR, f[374])) * 1.9 + h * .25;
+  const bulge = half * .12;                                  // 頭是圓的，布帶微微彎曲
+  const P = (s, o) => ({ x: c.x + ux * s * half + nx * o, y: c.y + uy * s * half + ny * o });
+  ctx.save(); ctx.globalAlpha = blind.alpha;
+  ctx.beginPath();
+  let a = P(-1, -h + bulge * .6), b = P(1, -h + bulge * .6);
+  ctx.moveTo(a.x, a.y);
+  let q = P(0, -h - bulge); ctx.quadraticCurveTo(q.x, q.y, b.x, b.y);
+  a = P(1, lo + bulge * .4); ctx.lineTo(a.x, a.y);
+  q = P(0, lo - bulge * .4); b = P(-1, lo + bulge * .4); ctx.quadraticCurveTo(q.x, q.y, b.x, b.y);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(P(0, -h).x, P(0, -h).y, P(0, lo).x, P(0, lo).y);
+  g.addColorStop(0, "#1c1c22"); g.addColorStop(.35, "#08080a"); g.addColorStop(.75, "#0e0e12"); g.addColorStop(1, "#000");
+  ctx.fillStyle = g; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = h * .4; ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.clip();
+  ctx.strokeStyle = "rgba(255,255,255,.06)"; ctx.lineWidth = Math.max(1, h * .05);   // 布的皺褶
+  for (const k of [-.55, -.15, .3, .7]) {
+    const s0 = P(-1, k * h), s1 = P(1, k * h * .8), qq = P(0, k * h - bulge * .5);
+    ctx.beginPath(); ctx.moveTo(s0.x, s0.y); ctx.quadraticCurveTo(qq.x, qq.y, s1.x, s1.y); ctx.stroke();
+  }
+  ctx.restore();
+}
 
 // ================= 座標 =================
 function cover() {
@@ -850,6 +908,7 @@ function detect() {
   if (video.currentTime === lastT) return;
   lastT = video.currentTime;
   const res = landmarker.detectForVideo(video, performance.now());
+  if (faceLandmarker && (blind.alpha > 0 || blind.want)) detectFace();
   const seen = new Set();
   const out = [];
   res.landmarks.forEach((raw, i) => {
@@ -967,6 +1026,8 @@ function loop() {
   for (const w of wolfQueue) drawWolf(...w);
   wolfQueue.length = 0;
   composite();
+  blind.want = labels.some(l => l.who === "五條悟");
+  drawBlindfold();
 
   // 名稱：取最重要的一個（陣列最前面）
   const top = labels.find(l => l.text !== "咒力") || labels[0];
