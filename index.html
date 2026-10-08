@@ -42,7 +42,7 @@
 <video id="video" autoplay playsinline muted></video>
 <canvas id="main"></canvas>
 <svg width="0" height="0" style="position:absolute">
-  <filter id="gooEdge"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 28 -9"/><feMorphology operator="dilate" radius="8"/><feComponentTransfer><feFuncA type="linear" slope="3"/></feComponentTransfer></filter>
+  <filter id="gooEdge"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 28 -9"/><feMorphology operator="dilate" radius="12"/><feComponentTransfer><feFuncA type="linear" slope="3"/></feComponentTransfer></filter>
   <filter id="gooFill"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -9"/></filter>
   <filter id="shadowRim"><feGaussianBlur stdDeviation="8"/><feColorMatrix values="0 0 0 0 .2  0 0 0 0 .5  0 0 0 0 1  0 0 0 28 -9"/><feMorphology operator="dilate" radius="5"/><feGaussianBlur stdDeviation="3"/></filter>
   <filter id="curseRim"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 .65  0 0 0 0 .25  0 0 0 0 1  0 0 0 28 -9"/><feMorphology operator="dilate" radius="4"/><feGaussianBlur stdDeviation="3"/></filter>
@@ -58,7 +58,7 @@
   <b>拇指和食指捏在一起</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>手指彈開或揮出</b> 發射<br>
   <b>雙手比 YA</b> 領域展開・無量空處<br>
   <i>虎杖悠仁</i><br>
-  <b>握拳</b> 紅色咒力包覆拳頭　<b>快速出拳</b> 黑閃（雙手可同時）<br>
+  <b>握拳</b> 紅色咒力包覆拳頭　<b>出拳</b>（往旁邊或往鏡頭打）黑閃，雙手可同時<br>
   <i>脹相</i><br>
   <b>雙手握拳併在一起、指向側邊</b> 赤血操術・穿血（水平射出）<br>
   <i>伏黑惠</i><br>
@@ -109,6 +109,7 @@ function detectFilter() {
   } catch (e) { return false; }
 }
 const tmpC = document.createElement("canvas"), TM = tmpC.getContext("2d");
+const ringC = document.createElement("canvas"), RG = ringC.getContext("2d");
 const tinyC = document.createElement("canvas"), TY = tinyC.getContext("2d");
 const tiny2C = document.createElement("canvas"), TY2 = tiny2C.getContext("2d");
 function tinted(src, color) {
@@ -127,8 +128,8 @@ const nameEl = document.getElementById("name"), userEl = document.getElementById
 const statusEl = document.getElementById("status");
 let W, H, M;
 function resize() {
-  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = innerWidth;
-  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = innerHeight;
+  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = ringC.width = innerWidth;
+  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = ringC.height = innerHeight;
   tinyC.width = Math.ceil(W / 8); tinyC.height = Math.ceil(H / 8); tiny2C.width = Math.ceil(W / 20); tiny2C.height = Math.ceil(H / 20);
   bloomC.width = Math.ceil(W / 2); bloomC.height = Math.ceil(H / 2);
   M = Math.min(W, H);
@@ -706,15 +707,24 @@ function gooBlob(x, y, r) {
 }
 function flushGoo() {
   if (gooUsed) {
+  // 黑色只留外圈（挖掉內部），紅色半透明，看得到底下的手
+  RG.globalCompositeOperation = "copy";
   if (FILTER_OK) {
-    D.filter = "url(#gooEdge)"; D.drawImage(gooC, 0, 0); D.filter = "none";
-    D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none";
-    L.globalAlpha = .35; L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; L.globalAlpha = 1;
+    RG.filter = "url(#gooEdge)"; RG.drawImage(gooC, 0, 0);
+    RG.globalCompositeOperation = "destination-out"; RG.filter = "url(#gooFill)"; RG.drawImage(gooC, 0, 0); RG.filter = "none";
   } else {
-    stampOutline(D, gooC, "#000", Math.max(7, M * .016));
-    D.drawImage(gooC, 0, 0);
-    L.globalAlpha = .35; L.drawImage(gooC, 0, 0); L.globalAlpha = 1;
+    RG.clearRect(0, 0, W, H); RG.globalCompositeOperation = "source-over";
+    stampOutline(RG, gooC, "#000", Math.max(10, M * .022));
+    RG.globalCompositeOperation = "destination-out"; RG.drawImage(gooC, 0, 0);
   }
+  RG.globalCompositeOperation = "source-over";
+  D.drawImage(ringC, 0, 0);
+  D.globalAlpha = .5;
+  if (FILTER_OK) { D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none"; } else D.drawImage(gooC, 0, 0);
+  D.globalAlpha = 1;
+  L.globalAlpha = FILTER_OK ? .2 : .12;
+  if (FILTER_OK) { L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; } else L.drawImage(gooC, 0, 0);
+  L.globalAlpha = 1;
   G.clearRect(0, 0, W, H); gooUsed = false;
   }
   if (curseUsed) {
@@ -1340,13 +1350,24 @@ function detect() {
     tr.hist.push(c); if (tr.hist.length > 4) tr.hist.shift();
     const prevC = tr.hist[0];
     const speed = dist(c, prevC) / Math.max(1, tr.hist.length - 1);
-    tr.last = { key, lm, pts, c, prevC, speed, pose: tr.pose, held: tr.held };
+    // 出拳偵測：剛剛握過拳（揮拳時手會糊掉，不一定還認得出拳頭），接著手突然移動或突然變大（往鏡頭打）
+    const now = performance.now(), palmRaw = dist(toScreen(raw[0]), toScreen(raw[9]));
+    if (tr.pose === "fist" && tr.held >= 2) tr.lastFist = now;
+    // 比較約 0.16 秒前的位置與大小（幀率低時至少拿上一幀來比）
+    const hist = tr.motion || [];
+    const recent = hist.filter(m => now - m.t < 160);
+    const m0 = recent[0] || (hist.length && now - hist[hist.length - 1].t < 800 ? hist[hist.length - 1] : { x: c.x, y: c.y, s: palmRaw });
+    tr.motion = [...recent, { t: now, x: c.x, y: c.y, s: palmRaw }];
+    const moved = dist(m0, c), grow = palmRaw / Math.max(1, m0.s);
+    const punch = now - (tr.lastFist || -1e9) < 700 && now > (tr.punchCool || 0) && (moved > M * .11 || grow > 1.2);
+    if (punch) tr.punchCool = now + 600;
+    tr.last = { key, lm, pts, c, prevC, speed, pose: tr.pose, held: tr.held, punch };
     out.push(tr.last);
   });
   // 短暫偵測不到（幾幀）時沿用上一次，避免特效一閃一閃
   for (const [key, tr] of Object.entries(track)) {
     if (seen.has(key) || !tr.last) continue;
-    if (++tr.missing <= 5 && out.length < 2) out.push({ ...tr.last, speed: 0 });
+    if (++tr.missing <= 5 && out.length < 2) out.push({ ...tr.last, speed: 0, punch: false });
     else if (tr.missing > 5) { tr.votes = []; tr.pose = "none"; tr.sm = null; tr.hist = []; tr.last = null; }
   }
   hands = out;
@@ -1412,6 +1433,9 @@ function loop() {
 
   // --- 單手（兩隻手各自獨立）---
   for (const h of hands) {
+    if (h.punch && !flashes[h.key] && !(P.state !== "idle" && h.key === P.key)) {      // 出拳 → 黑閃（優先於其他手勢）
+      blackFlash(h); cursedAura(h, 2.2); say("黑閃", "#f22", "虎杖悠仁"); used.add(h.key); continue;
+    }
     if (used.has(h.key)) continue;
     switch (h.pose) {
       case "open":
@@ -1426,10 +1450,7 @@ function loop() {
       case "horns": cursedSpirits(h.c); say("咒靈操術", "#b6f", "夏油傑"); break;
       case "shaka": divineDogs(h.c); say("十種影法術・玉犬", "#8af", "伏黑惠"); break;
       case "thumb": fuga(h); say("「開」", "#fa3", "兩面宿儺"); break;
-      case "fist":
-        if (h.speed > M * .07 && h.held > 6 && !flashes[h.key]) { blackFlash(h); cursedAura(h, 2.2); say("黑閃", "#f22", "虎杖悠仁"); }
-        else { cursedAura(h); say("咒力", "#f55", "虎杖悠仁"); }
-        break;
+      case "fist": cursedAura(h); say("咒力", "#f55", "虎杖悠仁"); break;
     }
   }
 
