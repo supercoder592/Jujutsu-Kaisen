@@ -155,47 +155,93 @@ function drawBlindfold() {
   if (ux < 0) { ux = -ux; uy = -uy; }                      // 鏡像後左右眼會對調，統一成由左到右
   const nx = -uy, ny = ux;                                   // 垂直於眼睛連線
   const c = mid(eL, eR);
-  const half = Math.max(dist(c, f[127]), dist(c, f[356])) * 1.08;
-  const h = Math.max(dist(eL, f[105]), dist(eR, f[334])) * 1.05;   // 從眉毛蓋到眼睛下方
-  const lo = Math.max(dist(eL, f[145]), dist(eR, f[374])) * 1.9 + h * .25;
-  const bulge = half * .12;                                  // 頭是圓的，布帶微微彎曲
+  const half = Math.max(dist(c, f[127]), dist(c, f[356])) * 1.12;
+  const h = Math.max(dist(eL, f[105]), dist(eR, f[334])) * 1.15;   // 從眉毛上方開始
+  const lo = Math.max(dist(eL, f[145]), dist(eR, f[374])) * 1.6 + h * .2;
+  const bulge = half * .1;
   const P = (s, o) => ({ x: c.x + ux * s * half + nx * o, y: c.y + uy * s * half + ny * o });
-  ctx.save(); ctx.globalAlpha = blind.alpha;
+  // 眼罩的上下緣：兩端往太陽穴收窄，下緣在鼻樑處往下凹（跨在鼻子上）
+  const top = u => -h - bulge * (1 - u * u) + Math.pow(Math.abs(u), 3) * h * .35;
+  const bot = u => lo * (.82 + .32 * Math.exp(-((u / .2) ** 2))) - Math.pow(Math.abs(u), 3) * lo * .3 + bulge * .4 * (1 - u * u);
+  const Q = (u, v) => P(u, top(u) + v * (bot(u) - top(u)));
+  const poly = pts => { const p = new Path2D(); pts.forEach(([u, v], i) => { const q = Q(u, v); i ? p.lineTo(q.x, q.y) : p.moveTo(q.x, q.y); }); p.closePath(); return p; };
+  // 兩端尖、中間寬的筆觸（賽璐璐亮面 / 皺褶）
+  const streak = (u0, v0, u1, v1, w) => {
+    const pts = [], N = 10;
+    for (let k = 0; k <= N; k++) { const t = k / N; pts.push([u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, Math.sin(Math.PI * t) * w]); }
+    const p = new Path2D();
+    pts.forEach(([u, v, ww], i) => { const q = Q(u - ww, v); i ? p.lineTo(q.x, q.y) : p.moveTo(q.x, q.y); });
+    for (let i = pts.length - 1; i >= 0; i--) { const [u, v, ww] = pts[i]; const q = Q(u + ww, v); p.lineTo(q.x, q.y); }
+    p.closePath(); return p;
+  };
   const band = new Path2D();
-  {
-    let a = P(-1, -h + bulge * .6), b = P(1, -h + bulge * .6), q = P(0, -h - bulge);
-    band.moveTo(a.x, a.y); band.quadraticCurveTo(q.x, q.y, b.x, b.y);
-    a = P(1, lo + bulge * .4); band.lineTo(a.x, a.y);
-    q = P(0, lo - bulge * .4); b = P(-1, lo + bulge * .4); band.quadraticCurveTo(q.x, q.y, b.x, b.y);
-    band.closePath();
-  }
-  // 白髮（在眼罩上方，跟著頭轉）
+  for (let k = 0; k <= 24; k++) { const u = -1 + 2 * k / 24, q = Q(u, 0); k ? band.lineTo(q.x, q.y) : band.moveTo(q.x, q.y); }
+  for (let k = 24; k >= 0; k--) { const u = -1 + 2 * k / 24, q = Q(u, 1); band.lineTo(q.x, q.y); }
+  band.closePath();
+
+  ctx.save(); ctx.globalAlpha = blind.alpha;
+  // 後面的白髮
   if (ART) {
-    const hr = ART.hair, top = P(0, -h - bulge * .6), sc = half * 2.25 / hr.w;
-    ctx.save(); ctx.translate(top.x, top.y); ctx.rotate(Math.atan2(uy, ux)); ctx.scale(sc, sc);
-    ctx.drawImage(hr.img, -hr.ox, -hr.oy - 10);
+    const hr = ART.hair, tp = P(0, top(0) + h * .15), sc = half * 2.25 / hr.w;
+    ctx.save(); ctx.translate(tp.x, tp.y); ctx.rotate(Math.atan2(uy, ux)); ctx.scale(sc, sc);
+    ctx.drawImage(hr.img, -hr.ox, -hr.oy);
     ctx.restore();
   }
-  // 布料：織紋 + 立體明暗（上緣受光、兩側轉暗）
-  ctx.shadowColor = "rgba(0,0,0,.7)"; ctx.shadowBlur = h * .5; ctx.shadowOffsetY = h * .1;
-  ctx.fillStyle = ART ? ctx.createPattern(ART.cloth, "repeat") : "#0b0b0f";
-  ctx.fill(band);
-  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-  ctx.clip(band);
-  let g = ctx.createLinearGradient(P(0, -h).x, P(0, -h).y, P(0, lo).x, P(0, lo).y);
-  g.addColorStop(0, "rgba(255,255,255,.16)"); g.addColorStop(.18, "rgba(255,255,255,.04)"); g.addColorStop(.6, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.6)");
-  ctx.fillStyle = g; ctx.fill(band);
+  // 底色：深藍黑，兩側（繞到頭後面）更暗
+  ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = h * .4; ctx.shadowOffsetY = h * .12;
   const l = P(-1, 0), r = P(1, 0);
-  g = ctx.createLinearGradient(l.x, l.y, r.x, r.y);
-  g.addColorStop(0, "rgba(0,0,0,.85)"); g.addColorStop(.25, "rgba(0,0,0,0)"); g.addColorStop(.75, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.85)");
+  let g = ctx.createLinearGradient(l.x, l.y, r.x, r.y);
+  g.addColorStop(0, "#07080e"); g.addColorStop(.2, "#1e2334"); g.addColorStop(.5, "#282e44"); g.addColorStop(.8, "#1e2334"); g.addColorStop(1, "#07080e");
   ctx.fillStyle = g; ctx.fill(band);
-  ctx.lineCap = "round";                                     // 布的皺褶：暗線 + 旁邊一條細高光
-  for (const k of [-.5, -.1, .35, .72]) {
-    const s0 = P(-1, k * h), s1 = P(1, k * h * .8), qq = P(.1, k * h - bulge * .5);
-    ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = Math.max(1, h * .07);
-    ctx.beginPath(); ctx.moveTo(s0.x, s0.y); ctx.quadraticCurveTo(qq.x, qq.y, s1.x, s1.y); ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = Math.max(1, h * .03);
-    ctx.beginPath(); ctx.moveTo(s0.x, s0.y - h * .06); ctx.quadraticCurveTo(qq.x, qq.y - h * .06, s1.x, s1.y - h * .06); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.save(); ctx.clip(band);
+  if (ART) { ctx.globalAlpha = blind.alpha * .35; ctx.fillStyle = ctx.createPattern(ART.cloth, "repeat"); ctx.fill(band); ctx.globalAlpha = blind.alpha; }
+  // 暗面（眼窩處布料凹下去）
+  ctx.fillStyle = "rgba(4,5,10,.75)";
+  for (const s of [-1, 1]) ctx.fill(poly([[s * .2, .55], [s * .5, .42], [s * .82, .5], [s * .9, 1.05], [s * .25, 1.05]]));
+  ctx.fill(poly([[-.08, .35], [.08, .35], [.05, 1.05], [-.05, 1.05]]));
+  // 中間調亮面（大片反光）
+  ctx.fillStyle = "rgba(92,102,138,.9)";
+  ctx.fill(streak(-.88, .3, -.3, .2, .09));
+  ctx.fill(streak(-.8, .36, -.42, .4, .05));
+  ctx.fill(streak(.3, .22, .86, .28, .08));
+  ctx.fill(streak(-.16, .2, .14, .18, .06));
+  // 鼻樑處布料被擠出來的斜向皺褶
+  ctx.fillStyle = "rgba(95,104,134,.95)";
+  ctx.fill(streak(-.1, .28, -.3, .92, .045));
+  ctx.fill(streak(.12, .3, .3, .9, .04));
+  ctx.fill(streak(-.42, .5, -.7, .78, .03));
+  ctx.fill(streak(.45, .52, .72, .74, .03));
+  ctx.fill(streak(-.62, .2, -.2, .22, .025));
+  // 最亮的高光
+  ctx.fillStyle = "rgba(170,180,210,.95)";
+  ctx.fill(streak(-.14, .32, -.24, .62, .016));
+  ctx.fill(streak(.15, .36, .23, .6, .014));
+  ctx.fill(streak(-.75, .2, -.5, .16, .012));
+  ctx.fill(streak(.45, .18, .7, .15, .01));
+  // 皺褶暗線
+  ctx.strokeStyle = "rgba(3,4,8,.95)"; ctx.lineWidth = Math.max(1, h * .045); ctx.lineCap = "round";
+  for (const [u0, v0, u1, v1, uc, vc] of [[-.02, .18, -.2, .98, -.02, .6], [.04, .2, .2, .95, .06, .6], [-.95, .55, -.45, .62, -.7, .5], [.5, .6, .95, .5, .72, .48], [-.5, .3, -.18, .45, -.35, .32]]) {
+    const a0 = Q(u0, v0), a1 = Q(u1, v1), ac = Q(uc, vc);
+    ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.quadraticCurveTo(ac.x, ac.y, a1.x, a1.y); ctx.stroke();
+  }
+  ctx.restore();
+  // 描線
+  ctx.strokeStyle = "rgba(0,0,0,.95)"; ctx.lineWidth = Math.max(1.5, h * .06); ctx.lineJoin = "round";
+  ctx.stroke(band);
+  // 前面垂下來、蓋過眼罩上緣的髮束
+  for (const [u, du, len, w] of [[-.72, .2, .34, .055], [-.5, .16, .44, .05], [.48, -.14, .38, .05], [.7, -.2, .3, .055]]) {
+    const pts = [], N = 12;
+    for (let k = 0; k <= N; k++) { const t = k / N; pts.push([u + du * Math.sin(t * Math.PI / 2), -.7 + (len + .7) * t, w * Math.sin(Math.PI * Math.min(1, t * 1.6 + .15)) * (1 - t * .8)]); }
+    const hp = new Path2D();
+    pts.forEach(([uu, v, ww], i) => { const q = Q(uu - ww, v); i ? hp.lineTo(q.x, q.y) : hp.moveTo(q.x, q.y); });
+    for (let i = pts.length - 1; i >= 0; i--) { const [uu, v, ww] = pts[i]; const q = Q(uu + ww, v); hp.lineTo(q.x, q.y); }
+    hp.closePath();
+    const q0 = Q(u, -.7), q1 = Q(u + du, len);
+    g = ctx.createLinearGradient(q0.x, q0.y, q1.x, q1.y);
+    g.addColorStop(0, "#ffffff"); g.addColorStop(.6, "#e4e8f4"); g.addColorStop(1, "#aab2cc");
+    ctx.fillStyle = g; ctx.fill(hp);
+    ctx.strokeStyle = "rgba(60,66,96,.85)"; ctx.lineWidth = Math.max(1, h * .025); ctx.stroke(hp);
   }
   ctx.restore();
 }
