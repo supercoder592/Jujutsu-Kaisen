@@ -66,20 +66,19 @@ function makeWolf(white) {
   g.translate(ox, oy);
   const shape = wolfShape();
   const pal = white
-    ? { base: ["#ffffff", "#e3e9f4", "#aab6cf"], fur: ["#ffffff", "#f1f4fb", "#c9d3e6", "#9aa7c4"], dark: "#56607e", rim: "rgba(150,200,255,.9)" }
-    : { base: ["#3a4155", "#141824", "#05060a"], fur: ["#4a5370", "#262c3e", "#11141e", "#000"], dark: "#000", rim: "rgba(90,160,255,.95)" };
+    ? { base: ["#f7f9fd", "#b9c3da", "#8d98b8"], fur: ["#ffffff", "#f1f4fb", "#c9d3e6", "#9aa7c4"], dark: "#56607e", rim: "rgba(150,200,255,.9)" }
+    : { base: ["#2c3247", "#11141f", "#05060a"], fur: ["#4a5370", "#262c3e", "#11141e", "#000"], dark: "#000", rim: "rgba(90,160,255,.95)" };
 
   // 底色：從口鼻（亮）到脖子（暗）
-  let gr = g.createRadialGradient(60 * WU, -100 * WU, 10, 0, -70 * WU, 170 * WU);
-  gr.addColorStop(0, pal.base[0]); gr.addColorStop(.5, pal.base[1]); gr.addColorStop(1, pal.base[2]);
-  g.fillStyle = gr; g.fill(shape);
+  let gr;
+  cel(g, shape, pal.base[0], pal.base[1], 26, 22, null);
 
   // 毛流：從口鼻往後、往下
   const box = [-70 * WU, -160 * WU, 95 * WU, 0];
-  strokesInside(g, shape, box, 5200, (x, y) => {
+  strokesInside(g, shape, box, 1600, (x, y) => {
     const a = Math.atan2(.35 + (y / (160 * WU)) * -.2, -1) + (x < -20 * WU ? .9 : 0);
     return [Math.cos(a), Math.sin(a)];
-  }, [10, 26], [1, 2.4], pal.fur, .45);
+  }, [12, 30], [1.2, 2.6], pal.fur, .3);
 
   // 額頭與口鼻的反光
   g.save(); g.clip(shape);
@@ -134,7 +133,7 @@ function makeWolf(white) {
   }
 
   // 輪廓：暗線 + 藍色邊緣光
-  g.strokeStyle = white ? "rgba(40,50,80,.8)" : "#000"; g.lineWidth = 3; g.stroke(shape);
+  g.strokeStyle = "#0b0c14"; g.lineWidth = 6; g.lineJoin = "round"; g.stroke(shape);
   g.save(); g.clip(shape);
   g.strokeStyle = pal.rim; g.lineWidth = 7; g.shadowColor = pal.rim; g.shadowBlur = 14;
   g.translate(-4, 4); g.stroke(shape);
@@ -248,75 +247,106 @@ function makeNueBody() {
   return { img: c, ox: cx, oy: hy, eyes: [[cx - 36, hy - 16], [cx + 36, hy - 16]] };
 }
 
-// ================= 魔虛羅 =================
-function muscle(g, x, y, rx, ry, rot, light = .35, dark = .35) {
-  let gr = g.createRadialGradient(x - rx * .3, y - ry * .3, 2, x, y, Math.max(rx, ry));
-  gr.addColorStop(0, `rgba(255,255,255,${light})`); gr.addColorStop(.45, "rgba(255,255,255,0)"); gr.addColorStop(.8, `rgba(40,50,80,${dark * .6})`); gr.addColorStop(1, "rgba(40,50,80,0)");
-  g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, TAU); g.fill();
+// ================= 魔虛羅（賽璐璐上色） =================
+// 平塗底色 → 右下方的陰影塊（用位移後的同一形狀挖出） → 黑色線稿
+function cel(g, path, base, shadow, dx, dy, line = "#1d1b28", lw = 5, deep = null) {
+  g.save(); g.clip(path);
+  g.fillStyle = deep || shadow; g.fill(path);
+  if (deep) { g.save(); g.translate(-dx * .4, -dy * .4); g.fillStyle = shadow; g.fill(path); g.restore(); }
+  g.translate(-dx, -dy); g.fillStyle = base; g.fill(path);
+  g.restore();
+  if (line) { g.strokeStyle = line; g.lineWidth = lw; g.lineJoin = "round"; g.stroke(path); }
+}
+function mirrorPath(build) {             // build(p, s) 用 s=±1 畫左右兩邊
+  const p = new Path2D(); build(p, -1); build(p, 1); return p;
 }
 function makeMahoraga() {
-  const W = 1000, H = 1150, c = canvas(W, H), g = c.getContext("2d");
-  const cx = W / 2, base = H;
-  const body = new Path2D();
-  body.moveTo(cx - 470, base);
-  body.bezierCurveTo(cx - 470, base - 300, cx - 470, base - 560, cx - 420, base - 680);   // 左臂
-  body.bezierCurveTo(cx - 380, base - 770, cx - 290, base - 800, cx - 200, base - 805);   // 三角肌頂
-  body.bezierCurveTo(cx - 140, base - 810, cx - 95, base - 830, cx - 80, base - 860);     // 斜方肌到脖子
-  body.lineTo(cx - 78, base - 850); body.bezierCurveTo(cx - 96, base - 960, cx - 70, base - 1060, cx, base - 1070);         // 頭
-  body.bezierCurveTo(cx + 70, base - 1060, cx + 96, base - 960, cx + 78, base - 850);
-  body.bezierCurveTo(cx + 95, base - 830, cx + 140, base - 810, cx + 200, base - 805);
-  body.bezierCurveTo(cx + 290, base - 800, cx + 380, base - 770, cx + 420, base - 680);
-  body.bezierCurveTo(cx + 470, base - 560, cx + 470, base - 300, cx + 470, base);
-  body.closePath();
-  let gr = g.createLinearGradient(cx - 470, 0, cx + 470, 0);
-  gr.addColorStop(0, "#8e93a6"); gr.addColorStop(.3, "#dfe2ea"); gr.addColorStop(.55, "#f4f5f8"); gr.addColorStop(1, "#7c8296");
-  g.fillStyle = gr; g.fill(body);
-  g.save(); g.clip(body);
-  // 肌肉：三角肌、胸肌、腹肌、手臂
+  const W = 1100, H = 1320, c = canvas(W, H), g = c.getContext("2d");
+  const ox = W / 2, oy = H;
+  g.translate(ox, oy);
+  const SK = "#f2f0f6", SH = "#b9b5cc", DP = "#8f8aa8", LN = "#1d1b28";
+  const P = (cmds) => { const p = new Path2D(); for (const [op, ...a] of cmds) p[op](...a); return p; };
+
   for (const s of [-1, 1]) {
-    muscle(g, cx + s * 300, base - 640, 120, 150, s * .5, .45, .45);       // 三角肌
-    muscle(g, cx + s * 130, base - 610, 150, 105, s * -.15, .5, .5);       // 胸肌
-    muscle(g, cx + s * 400, base - 400, 90, 230, s * .1, .35, .5);         // 上臂
-    for (let r = 0; r < 3; r++) muscle(g, cx + s * 56, base - 470 + r * 100, 58, 52, 0, .3, .4);   // 腹肌
-    muscle(g, cx + s * 200, base - 330, 70, 200, s * -.25, .25, .45);      // 側腹
+    // 前臂、上臂
+    cel(g, P([["moveTo", s * 292, -345], ["bezierCurveTo", s * 282, -240, s * 292, -120, s * 306, 0], ["lineTo", s * 396, 0],
+      ["bezierCurveTo", s * 414, -140, s * 424, -262, s * 404, -348], ["closePath"]]), SK, SH, s * 16, 10, LN, 5);
+    cel(g, P([["moveTo", s * 268, -612], ["bezierCurveTo", s * 248, -488, s * 266, -386, s * 296, -322], ["lineTo", s * 398, -332],
+      ["bezierCurveTo", s * 424, -424, s * 414, -526, s * 388, -620], ["closePath"]]), SK, SH, s * 18, 12, LN, 5);
+    // 二頭肌分界線
+    g.strokeStyle = LN; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(s * 300, -500); g.quadraticCurveTo(s * 330, -420, s * 318, -350); g.stroke();
   }
-  // 中線與胸肌下緣的線條
-  g.strokeStyle = "rgba(50,55,80,.55)"; g.lineWidth = 4; g.lineCap = "round";
-  g.beginPath(); g.moveTo(cx, base - 700); g.lineTo(cx, base - 160); g.stroke();
-  for (const s of [-1, 1]) {
-    g.beginPath(); g.moveTo(cx, base - 520); g.quadraticCurveTo(cx + s * 160, base - 500, cx + s * 260, base - 610); g.stroke();
-    g.beginPath(); g.moveTo(cx + s * 240, base - 740); g.quadraticCurveTo(cx + s * 330, base - 620, cx + s * 330, base - 480); g.stroke();
+  // 軀幹
+  const torso = P([
+    ["moveTo", -172, 0], ["bezierCurveTo", -178, -120, -216, -262, -250, -382], ["bezierCurveTo", -270, -472, -276, -562, -256, -652],
+    ["lineTo", -190, -735], ["bezierCurveTo", -150, -772, -110, -792, -80, -832], ["lineTo", -74, -905], ["lineTo", 74, -905],
+    ["lineTo", 80, -832], ["bezierCurveTo", 110, -792, 150, -772, 190, -735], ["lineTo", 256, -652],
+    ["bezierCurveTo", 276, -562, 270, -472, 250, -382], ["bezierCurveTo", 216, -262, 178, -120, 172, 0], ["closePath"]]);
+  cel(g, torso, SK, SH, 22, 8, LN, 6);
+  // 斜方肌
+  for (const s of [-1, 1]) cel(g, P([["moveTo", s * 74, -870], ["bezierCurveTo", s * 120, -812, s * 180, -790, s * 238, -768], ["lineTo", s * 160, -742], ["bezierCurveTo", s * 120, -770, s * 92, -800, s * 74, -830], ["closePath"]]), SK, SH, s * 10, 8, LN, 4);
+  // 胸肌
+  for (const s of [-1, 1]) cel(g, P([["moveTo", 0, -738], ["bezierCurveTo", s * 90, -748, s * 200, -734, s * 256, -664], ["bezierCurveTo", s * 262, -602, s * 232, -542, s * 172, -522],
+    ["bezierCurveTo", s * 112, -506, s * 42, -520, 0, -540], ["closePath"]]), SK, SH, s * 8, 26, LN, 5, DP);
+  // 腹肌（三排）
+  for (const s of [-1, 1]) for (let r = 0; r < 3; r++) {
+    const y0 = -510 + r * 82, y1 = y0 + 70, x0 = s * 12, x1 = s * (96 - r * 4);
+    const p = new Path2D();
+    p.moveTo(x0, y0 + 10); p.quadraticCurveTo(x0, y0, x0 + s * 12, y0); p.lineTo(x1 - s * 18, y0 + 4);
+    p.quadraticCurveTo(x1, y0 + 8, x1, y0 + 26); p.lineTo(x1 - s * 4, y1 - 12); p.quadraticCurveTo(x1 - s * 8, y1, x1 - s * 26, y1);
+    p.lineTo(x0 + s * 10, y1); p.quadraticCurveTo(x0, y1, x0, y1 - 12); p.closePath();
+    cel(g, p, SK, SH, s * 8, 14, LN, 3.5);
   }
-  // 腰布
-  gr = g.createLinearGradient(0, base - 160, 0, base);
-  gr.addColorStop(0, "#15151c"); gr.addColorStop(1, "#000");
-  g.fillStyle = gr; g.fillRect(cx - 260, base - 170, 520, 170);
-  g.strokeStyle = "rgba(255,255,255,.15)"; g.lineWidth = 3;
-  for (let k = -4; k <= 4; k++) { g.beginPath(); g.moveTo(cx + k * 55, base - 165); g.quadraticCurveTo(cx + k * 60 + 10, base - 80, cx + k * 62, base); g.stroke(); }
-  grain(g, W, H, 9000, ["#000", "#fff", "#6a7090"], .1, 2);
-  g.restore();
-  // 頭部：沒有臉孔的光滑頭、遮住眼睛的翅膀、嘴
-  const hy = base - 960;
-  gr = g.createRadialGradient(cx - 20, hy - 30, 10, cx, hy, 110);
-  gr.addColorStop(0, "#fff"); gr.addColorStop(1, "rgba(120,125,145,.0)");
-  g.fillStyle = gr; g.beginPath(); g.ellipse(cx, hy, 85, 105, 0, 0, TAU); g.fill();
-  g.strokeStyle = "rgba(40,44,64,.85)"; g.lineWidth = 5;
-  g.beginPath(); g.moveTo(cx - 34, hy + 62); g.quadraticCurveTo(cx, hy + 74, cx + 34, hy + 62); g.stroke();
+  // 前鋸肌、腹外斜肌
+  g.strokeStyle = LN; g.lineWidth = 3.5; g.lineCap = "round";
   for (const s of [-1, 1]) {
-    // 兩對翅膀：一對蓋住眼睛，一對在頭頂
-    for (const [wy, sc, rot] of [[hy - 20, 1, .15], [hy - 80, .8, -.35]]) {
-      g.save(); g.translate(cx + s * 30, wy); g.scale(s * sc, sc); g.rotate(rot);
-      for (let k = 0; k < 7; k++) {
-        g.save(); g.rotate(-.5 + k * .14);
-        feather(g, 170 - k * 12, 22, ["#ffffff", "#dfe3ec", "#9aa1b8"], "rgba(60,66,96,.8)", "rgba(110,118,150,.6)");
+    for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(s * (232 - k * 6), -520 + k * 44); g.quadraticCurveTo(s * 205, -505 + k * 44, s * (178 - k * 4), -488 + k * 46); g.stroke(); }
+    g.beginPath(); g.moveTo(s * 170, -280); g.quadraticCurveTo(s * 120, -170, s * 66, -80); g.stroke();
+    // 鎖骨
+    g.beginPath(); g.moveTo(s * 22, -752); g.quadraticCurveTo(s * 100, -770, s * 176, -752); g.stroke();
+    // 頸部肌腱
+    g.beginPath(); g.moveTo(s * 58, -896); g.quadraticCurveTo(s * 40, -820, s * 20, -760); g.stroke();
+  }
+  // 三角肌（蓋在手臂與軀幹上）
+  for (const s of [-1, 1]) cel(g, P([["moveTo", s * 186, -762], ["bezierCurveTo", s * 300, -806, s * 394, -726, s * 390, -604],
+    ["bezierCurveTo", s * 386, -526, s * 334, -472, s * 292, -500], ["bezierCurveTo", s * 270, -600, s * 240, -700, s * 186, -762], ["closePath"]]), SK, SH, s * 20, 16, LN, 5);
+  // 腰布與繩結
+  const cloth = P([["moveTo", -214, -70], ["bezierCurveTo", -110, -100, 110, -100, 214, -70], ["lineTo", 244, 0], ["lineTo", -244, 0], ["closePath"]]);
+  cel(g, cloth, "#24222e", "#0d0c12", 14, 10, "#000", 5);
+  g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = 3;
+  for (let k = -4; k <= 4; k++) { g.beginPath(); g.moveTo(k * 46, -82); g.quadraticCurveTo(k * 50 + 8, -40, k * 54, 0); g.stroke(); }
+  const rope = P([["moveTo", -206, -78], ["bezierCurveTo", -100, -112, 100, -112, 206, -78], ["lineTo", 200, -56], ["bezierCurveTo", 100, -88, -100, -88, -200, -56], ["closePath"]]);
+  cel(g, rope, "#e8dcc0", "#a8977a", 0, 8, LN, 4);
+  // 劍（右前臂外側伸出）
+  const blade = P([["moveTo", 404, -300], ["bezierCurveTo", 440, -220, 500, -100, 560, 0], ["lineTo", 470, 0], ["bezierCurveTo", 440, -110, 420, -200, 392, -262], ["closePath"]]);
+  cel(g, blade, "#e6ebf5", "#8f98b0", -12, 6, LN, 4);
+  g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(410, -280); g.bezierCurveTo(445, -205, 495, -100, 548, 0); g.stroke();
+  // 頭
+  const head = P([["moveTo", 0, -1112], ["bezierCurveTo", 82, -1112, 98, -1022, 92, -962], ["bezierCurveTo", 86, -910, 56, -884, 0, -878],
+    ["bezierCurveTo", -56, -884, -86, -910, -92, -962], ["bezierCurveTo", -98, -1022, -82, -1112, 0, -1112], ["closePath"]]);
+  cel(g, head, SK, SH, 18, 14, LN, 6);
+  // 鼻子陰影、嘴唇
+  g.fillStyle = SH; g.beginPath(); g.moveTo(-6, -965); g.lineTo(10, -935); g.lineTo(-10, -935); g.closePath(); g.fill();
+  g.strokeStyle = LN; g.lineWidth = 3; g.beginPath(); g.moveTo(-8, -936); g.lineTo(10, -936); g.stroke();
+  g.lineWidth = 4; g.beginPath(); g.moveTo(-34, -912); g.quadraticCurveTo(0, -904, 34, -912); g.stroke();
+  g.fillStyle = SH; g.beginPath(); g.moveTo(-24, -908); g.quadraticCurveTo(0, -896, 24, -908); g.quadraticCurveTo(0, -900, -24, -908); g.fill();
+  // 頭部的翅膀：一對蓋住眼睛，一對在上面
+  const wingFeather = (len, wid) => { const p = new Path2D(); p.moveTo(0, -wid * .4); p.bezierCurveTo(len * .35, -wid, len * .8, -wid * .6, len, 0); p.bezierCurveTo(len * .8, wid * .45, len * .35, wid * .7, 0, wid * .4); p.closePath(); return p; };
+  for (const s of [-1, 1]) {
+    for (const [ax, ay, rot0, sc] of [[50, -992, -.05, 1], [42, -1062, -.55, .72]]) {
+      g.save(); g.translate(s * ax, ay); g.scale(s * sc, sc); g.rotate(rot0);
+      for (let k = 4; k >= 0; k--) {
+        g.save(); g.rotate(-.32 + k * .16);
+        cel(g, wingFeather(250 - k * 28, 40), "#ffffff", "#c9c5da", 0, 10, LN, 4);
+        g.strokeStyle = "#a9a4c0"; g.lineWidth = 2; g.beginPath(); g.moveTo(10, 0); g.lineTo(220 - k * 28, 0); g.stroke();
         g.restore();
       }
       g.restore();
     }
   }
-  // 輪廓
-  g.strokeStyle = "rgba(25,28,44,.9)"; g.lineWidth = 6; g.stroke(body);
-  return { img: c, ox: cx, oy: base, headY: hy - base };
+  return { img: c, ox, oy, headY: -995 };
 }
 function makeWheel() {
   const R = 260, S = R * 2 + 60, c = canvas(S, S), g = c.getContext("2d");

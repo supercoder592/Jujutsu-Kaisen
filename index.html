@@ -112,7 +112,7 @@ document.getElementById("btn").onclick = async () => {
         delegate: "GPU"
       },
       runningMode: "VIDEO", numHands: 2,
-      minHandDetectionConfidence: .6, minHandPresenceConfidence: .6, minTrackingConfidence: .5
+      minHandDetectionConfidence: .75, minHandPresenceConfidence: .75, minTrackingConfidence: .6
     });
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
     await video.play();
@@ -137,59 +137,73 @@ function detectFace() {
   const r = faceLandmarker.detectForVideo(video, performance.now() + 1);
   const lm = r.faceLandmarks?.[0];
   if (!lm) { blind.face = null; return; }
-  const idx = [33, 133, 362, 263, 127, 356, 105, 334, 145, 374];
-  const pts = {};
-  for (const i of idx) {
-    const p = toScreen(lm[i]), old = blind.face?.[i];
-    pts[i] = old ? { x: old.x + (p.x - old.x) * .5, y: old.y + (p.y - old.y) * .5 } : p;
+  const old = blind.face;
+  blind.face = lm.map((q, i) => {
+    const p = toScreen(q);
+    return old ? { x: old[i].x + (p.x - old[i].x) * .45, y: old[i].y + (p.y - old[i].y) * .45 } : p;
+  });
+}
+// Catmull-Rom 曲線重新取樣成 n 個點
+function resample(pts, n) {
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const t = k / (n - 1) * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(t)), f = t - i;
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const cr = (a, b, c, d) => .5 * (2 * b + (-a + c) * f + (2 * a - 5 * b + 4 * c - d) * f * f + (-a + 3 * b - 3 * c + d) * f * f * f);
+    out.push({ x: cr(p0.x, p1.x, p2.x, p3.x), y: cr(p0.y, p1.y, p2.y, p3.y) });
   }
-  blind.face = pts;
+  return out;
 }
 function drawBlindfold() {
   blind.alpha += ((blind.want && blind.face ? 1 : 0) - blind.alpha) * .2;
   if (blind.alpha < .02 || !blind.face) return;
   const f = blind.face;
   const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-  const eL = mid(f[33], f[133]), eR = mid(f[362], f[263]);
-  let ux = eR.x - eL.x, uy = eR.y - eL.y; const n = Math.hypot(ux, uy) || 1; ux /= n; uy /= n;
-  if (ux < 0) { ux = -ux; uy = -uy; }                      // 鏡像後左右眼會對調，統一成由左到右
-  const nx = -uy, ny = ux;                                   // 垂直於眼睛連線
-  const c = mid(eL, eR);
-  const half = Math.max(dist(c, f[127]), dist(c, f[356])) * 1.12;
-  const h = Math.max(dist(eL, f[105]), dist(eR, f[334])) * 1.15;   // 從眉毛上方開始
-  const lo = Math.max(dist(eL, f[145]), dist(eR, f[374])) * 1.6 + h * .2;
-  const bulge = half * .1;
-  const P = (s, o) => ({ x: c.x + ux * s * half + nx * o, y: c.y + uy * s * half + ny * o });
-  // 眼罩的上下緣：兩端往太陽穴收窄，下緣在鼻樑處往下凹（跨在鼻子上）
-  const top = u => -h - bulge * (1 - u * u) + Math.pow(Math.abs(u), 3) * h * .35;
-  const bot = u => lo * (.82 + .32 * Math.exp(-((u / .2) ** 2))) - Math.pow(Math.abs(u), 3) * lo * .3 + bulge * .4 * (1 - u * u);
-  const Q = (u, v) => P(u, top(u) + v * (bot(u) - top(u)));
+  const eA = mid(f[33], f[133]), eB = mid(f[362], f[263]);
+  let ux = eB.x - eA.x, uy = eB.y - eA.y; const n = Math.hypot(ux, uy) || 1; ux /= n; uy /= n;
+  if (ux < 0) { ux = -ux; uy = -uy; }                      // 鏡像後左右會對調，統一成畫面由左到右
+  const up = { x: uy, y: -ux };                            // 垂直於眼睛連線、朝額頭
+  const browH = (dist(eA, f[105]) + dist(eB, f[334])) / 2;
+  const mv = (i, k) => ({ x: f[i].x + up.x * browH * k, y: f[i].y + up.y * browH * k });
+  // 沿著臉的輪廓：上緣在眉毛上方，下緣在眼睛下方、鼻樑處凹下，兩端貼著臉頰邊緣
+  const sideA = [[127, -.1], [162, .3], [70, .6], [63, .62], [105, .62], [66, .6], [107, .55]];
+  const sideB = [[336, .55], [296, .6], [334, .62], [293, .62], [300, .6], [389, .3], [356, -.1]];
+  const topRaw = [...sideA, [9, .5], ...sideB].map(([i, k]) => mv(i, k));
+  const botRaw = [[234, .05], [33, -.42], [145, -.48], [133, -.58], [197, .05], [362, -.58], [374, -.48], [263, -.42], [454, .05]].map(([i, k]) => mv(i, k));
+  // 保持解剖順序，只在需要時整條反轉（排序會在轉頭時讓遠側的點交錯）
+  const dotU = p => p.x * ux + p.y * uy;
+  if (dotU(topRaw[0]) > dotU(topRaw[topRaw.length - 1])) topRaw.reverse();
+  if (dotU(botRaw[0]) > dotU(botRaw[botRaw.length - 1])) botRaw.reverse();
+  const N = 33, TOP = resample(topRaw, N), BOT = resample(botRaw, N);
+  const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  const edge = (arr, u) => { const t = (Math.max(-1, Math.min(1, u)) + 1) / 2 * (N - 1), i = Math.min(N - 2, Math.floor(t)); return lerp(arr[i], arr[i + 1], t - i); };
+  const Q = (u, v) => lerp(edge(TOP, u), edge(BOT, u), v);
+  const h = dist(Q(0, 0), Q(0, 1));
   const poly = pts => { const p = new Path2D(); pts.forEach(([u, v], i) => { const q = Q(u, v); i ? p.lineTo(q.x, q.y) : p.moveTo(q.x, q.y); }); p.closePath(); return p; };
-  // 兩端尖、中間寬的筆觸（賽璐璐亮面 / 皺褶）
   const streak = (u0, v0, u1, v1, w) => {
-    const pts = [], N = 10;
-    for (let k = 0; k <= N; k++) { const t = k / N; pts.push([u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, Math.sin(Math.PI * t) * w]); }
+    const pts = [], M2 = 10;
+    for (let k = 0; k <= M2; k++) { const t = k / M2; pts.push([u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, Math.sin(Math.PI * t) * w]); }
     const p = new Path2D();
     pts.forEach(([u, v, ww], i) => { const q = Q(u - ww, v); i ? p.lineTo(q.x, q.y) : p.moveTo(q.x, q.y); });
     for (let i = pts.length - 1; i >= 0; i--) { const [u, v, ww] = pts[i]; const q = Q(u + ww, v); p.lineTo(q.x, q.y); }
     p.closePath(); return p;
   };
   const band = new Path2D();
-  for (let k = 0; k <= 24; k++) { const u = -1 + 2 * k / 24, q = Q(u, 0); k ? band.lineTo(q.x, q.y) : band.moveTo(q.x, q.y); }
-  for (let k = 24; k >= 0; k--) { const u = -1 + 2 * k / 24, q = Q(u, 1); band.lineTo(q.x, q.y); }
+  TOP.forEach((q, i) => i ? band.lineTo(q.x, q.y) : band.moveTo(q.x, q.y));
+  for (let i = N - 1; i >= 0; i--) band.lineTo(BOT[i].x, BOT[i].y);
   band.closePath();
 
   ctx.save(); ctx.globalAlpha = blind.alpha;
   // 後面的白髮
   if (ART) {
-    const hr = ART.hair, tp = P(0, top(0) + h * .15), sc = half * 2.25 / hr.w;
+    const hr = ART.hair, tp = Q(0, .12), wpx = dist(TOP[0], TOP[N - 1]), sc = wpx * 1.2 / hr.w;
     ctx.save(); ctx.translate(tp.x, tp.y); ctx.rotate(Math.atan2(uy, ux)); ctx.scale(sc, sc);
     ctx.drawImage(hr.img, -hr.ox, -hr.oy);
     ctx.restore();
   }
   // 底色：深藍黑，兩側（繞到頭後面）更暗
   ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = h * .4; ctx.shadowOffsetY = h * .12;
-  const l = P(-1, 0), r = P(1, 0);
+  const l = Q(-1, .5), r = Q(1, .5);
   let g = ctx.createLinearGradient(l.x, l.y, r.x, r.y);
   g.addColorStop(0, "#07080e"); g.addColorStop(.2, "#1e2334"); g.addColorStop(.5, "#282e44"); g.addColorStop(.8, "#1e2334"); g.addColorStop(1, "#07080e");
   ctx.fillStyle = g; ctx.fill(band);
@@ -197,9 +211,9 @@ function drawBlindfold() {
   ctx.save(); ctx.clip(band);
   if (ART) { ctx.globalAlpha = blind.alpha * .35; ctx.fillStyle = ctx.createPattern(ART.cloth, "repeat"); ctx.fill(band); ctx.globalAlpha = blind.alpha; }
   // 暗面（眼窩處布料凹下去）
-  ctx.fillStyle = "rgba(4,5,10,.75)";
-  for (const s of [-1, 1]) ctx.fill(poly([[s * .2, .55], [s * .5, .42], [s * .82, .5], [s * .9, 1.05], [s * .25, 1.05]]));
-  ctx.fill(poly([[-.08, .35], [.08, .35], [.05, 1.05], [-.05, 1.05]]));
+  ctx.fillStyle = "rgba(4,5,10,.7)";
+  for (const s of [-1, 1]) ctx.fill(poly([[s * .2, .55], [s * .5, .45], [s * .8, .52], [s * .88, 1.05], [s * .25, 1.05]]));
+  ctx.fill(poly([[-.07, .4], [.07, .4], [.04, 1.05], [-.04, 1.05]]));
   // 中間調亮面（大片反光）
   ctx.fillStyle = "rgba(92,102,138,.9)";
   ctx.fill(streak(-.88, .3, -.3, .2, .09));
@@ -207,37 +221,36 @@ function drawBlindfold() {
   ctx.fill(streak(.3, .22, .86, .28, .08));
   ctx.fill(streak(-.16, .2, .14, .18, .06));
   // 鼻樑處布料被擠出來的斜向皺褶
-  ctx.fillStyle = "rgba(95,104,134,.95)";
-  ctx.fill(streak(-.1, .28, -.3, .92, .045));
-  ctx.fill(streak(.12, .3, .3, .9, .04));
-  ctx.fill(streak(-.42, .5, -.7, .78, .03));
-  ctx.fill(streak(.45, .52, .72, .74, .03));
-  ctx.fill(streak(-.62, .2, -.2, .22, .025));
+  ctx.fillStyle = "rgba(105,114,146,.95)";
+  ctx.fill(streak(-.1, .3, -.3, .92, .045));
+  ctx.fill(streak(.12, .32, .3, .9, .04));
+  ctx.fill(streak(-.42, .52, -.7, .8, .03));
+  ctx.fill(streak(.45, .54, .72, .76, .03));
   // 最亮的高光
-  ctx.fillStyle = "rgba(170,180,210,.95)";
-  ctx.fill(streak(-.14, .32, -.24, .62, .016));
-  ctx.fill(streak(.15, .36, .23, .6, .014));
-  ctx.fill(streak(-.75, .2, -.5, .16, .012));
-  ctx.fill(streak(.45, .18, .7, .15, .01));
+  ctx.fillStyle = "rgba(180,190,220,.95)";
+  ctx.fill(streak(-.14, .34, -.24, .62, .016));
+  ctx.fill(streak(.15, .38, .23, .6, .014));
+  ctx.fill(streak(-.75, .22, -.5, .18, .012));
+  ctx.fill(streak(.45, .2, .7, .17, .01));
   // 皺褶暗線
-  ctx.strokeStyle = "rgba(3,4,8,.95)"; ctx.lineWidth = Math.max(1, h * .045); ctx.lineCap = "round";
-  for (const [u0, v0, u1, v1, uc, vc] of [[-.02, .18, -.2, .98, -.02, .6], [.04, .2, .2, .95, .06, .6], [-.95, .55, -.45, .62, -.7, .5], [.5, .6, .95, .5, .72, .48], [-.5, .3, -.18, .45, -.35, .32]]) {
+  ctx.strokeStyle = "rgba(3,4,8,.95)"; ctx.lineWidth = Math.max(1, h * .04); ctx.lineCap = "round";
+  for (const [u0, v0, u1, v1, uc, vc] of [[-.02, .2, -.2, .98, -.02, .6], [.04, .22, .2, .95, .06, .6], [-.95, .55, -.45, .62, -.7, .5], [.5, .6, .95, .5, .72, .48], [-.5, .3, -.18, .45, -.35, .32]]) {
     const a0 = Q(u0, v0), a1 = Q(u1, v1), ac = Q(uc, vc);
     ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.quadraticCurveTo(ac.x, ac.y, a1.x, a1.y); ctx.stroke();
   }
   ctx.restore();
   // 描線
-  ctx.strokeStyle = "rgba(0,0,0,.95)"; ctx.lineWidth = Math.max(1.5, h * .06); ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(0,0,0,.95)"; ctx.lineWidth = Math.max(1.5, h * .055); ctx.lineJoin = "round";
   ctx.stroke(band);
   // 前面垂下來、蓋過眼罩上緣的髮束
-  for (const [u, du, len, w] of [[-.72, .2, .34, .055], [-.5, .16, .44, .05], [.48, -.14, .38, .05], [.7, -.2, .3, .055]]) {
-    const pts = [], N = 12;
-    for (let k = 0; k <= N; k++) { const t = k / N; pts.push([u + du * Math.sin(t * Math.PI / 2), -.7 + (len + .7) * t, w * Math.sin(Math.PI * Math.min(1, t * 1.6 + .15)) * (1 - t * .8)]); }
+  for (const [u, du, len, w] of [[-.78, .14, .3, .028], [-.62, .12, .42, .024], [-.44, .08, .26, .02], [.4, -.06, .3, .02], [.58, -.1, .44, .024], [.76, -.14, .32, .028]]) {
+    const pts = [], M2 = 12;
+    for (let k = 0; k <= M2; k++) { const t = k / M2; pts.push([u + du * t * t, -.8 + (len + .8) * t, w * Math.pow(1 - t, 1.3)]); }
     const hp = new Path2D();
     pts.forEach(([uu, v, ww], i) => { const q = Q(uu - ww, v); i ? hp.lineTo(q.x, q.y) : hp.moveTo(q.x, q.y); });
     for (let i = pts.length - 1; i >= 0; i--) { const [uu, v, ww] = pts[i]; const q = Q(uu + ww, v); hp.lineTo(q.x, q.y); }
     hp.closePath();
-    const q0 = Q(u, -.7), q1 = Q(u + du, len);
+    const q0 = Q(u, -.8), q1 = Q(u + du, len);
     g = ctx.createLinearGradient(q0.x, q0.y, q1.x, q1.y);
     g.addColorStop(0, "#ffffff"); g.addColorStop(.6, "#e4e8f4"); g.addColorStop(1, "#aab2cc");
     ctx.fillStyle = g; ctx.fill(hp);
@@ -265,8 +278,8 @@ function bend(lm, a, b, c, d) {
 function fingerState(lm, mcp, pip, tip) {
   const cs = bend(lm, mcp, pip, pip, tip);
   const far = dist(lm[tip], lm[0]) > dist(lm[pip], lm[0]);
-  if (cs > .75 && far) return 1;
-  if (cs < .35 || !far) return 0;
+  if (cs > .85 && far) return 1;
+  if (cs < .3 || !far) return 0;
   return -1;                                              // 不確定
 }
 function pose(lm) {
@@ -274,7 +287,7 @@ function pose(lm) {
   const f = [fingerState(lm, 5, 6, 8), fingerState(lm, 9, 10, 12), fingerState(lm, 13, 14, 16), fingerState(lm, 17, 18, 20)];
   // 茈的手勢：拇指和食指捏在一起（準備彈指），其餘手指收起
   const others = [[9, 10, 12], [13, 14, 16], [17, 18, 20]].map(([a, b, c]) => bend(lm, a, b, b, c));
-  if (dist(lm[4], lm[8]) < palm * .38 && dist(lm[8], lm[0]) > palm * 1.05 && others.filter(c => c < .8).length >= 2) return "pinch";
+  if (dist(lm[4], lm[8]) < palm * .32 && dist(lm[8], lm[0]) > palm * 1.05 && others.filter(c => c < .75).length >= 2) return "pinch";
   if (f.includes(-1)) return "none";
   const [i, m, r, p] = f.map(Boolean);
   const thumbStraight = bend(lm, 2, 3, 3, 4) > .8;
@@ -477,7 +490,7 @@ function updateProjs() {
 }
 function tryLaunch(h, type, from) {
   projCool[h.key] = (projCool[h.key] || 0) - 1;
-  if (h.speed > M * .06 && h.held > 4 && projCool[h.key] <= 0) {
+  if (h.speed > M * .06 && h.held > 8 && projCool[h.key] <= 0) {
     launch(type, from.x, from.y, h.c.x - h.prevC.x, h.c.y - h.prevC.y);
     projCool[h.key] = 25;
     return true;
@@ -899,11 +912,13 @@ function nue(a, b) {
 function mahoraga(a, b) {
   const ms = summonTime("maho"), e = Math.min(1, ms / 1500), ease = 1 - Math.pow(1 - e, 3);
   setGrade("rgba(40,30,70,.6)", .9, .15);
-  const base = H + M * .02, x = W / 2, art = ART.mahoraga, s = (H * .78) / art.img.height;
-  inkPool(x, base - M * .02, W * .45, M * .12);
+  // 站在使用者旁邊（手的另一側），不要擋住人
+  const st = shikiState.maho, hx = (a.c.x + b.c.x) / 2;
+  if (st.sideAt !== st.start) { st.side = hx < W / 2 ? 1 : -1; st.sideAt = st.start; }
+  const base = H + M * .02, x = W / 2 + st.side * W * .26, art = ART.mahoraga, s = (H * .9) / art.img.height;
+  inkPool(x, base - M * .02, W * .3, M * .1);
   const rise = (1 - ease) * art.img.height * s;
   D.save(); D.beginPath(); D.rect(0, 0, W, base - M * .03); D.clip();
-  D.globalAlpha = .9;
   D.translate(x, base + rise); D.scale(s, s); D.drawImage(art.img, -art.ox, -art.oy);
   D.restore();
   // 邊緣光
@@ -911,8 +926,8 @@ function mahoraga(a, b) {
   // 法輪：每 1.6 秒轉一格（適應）
   const step = Math.floor(ms / 1600), frac = Math.min(1, (ms % 1600) / 250);
   const rot = (step + (1 - Math.pow(1 - frac, 3))) * TAU / 8;
-  const wr = ART.wheel, ws = M * .2 / wr.r;
-  const wy = base + rise + (art.headY - 190) * s - M * .12;
+  const wr = ART.wheel, ws = 150 * s / wr.r;
+  const wy = base + rise + (art.headY - 250) * s;
   if (ms > 900) {
     D.save(); D.translate(x, wy); D.rotate(rot); D.scale(ws, ws); D.drawImage(wr.img, -wr.size / 2, -wr.size / 2); D.restore();
     glow(L, x, wy, M * .3, [[0, "rgba(255,230,160,.25)"], [1, "rgba(0,0,0,0)"]]);
@@ -1001,7 +1016,7 @@ function detect() {
   const out = [];
   res.landmarks.forEach((raw, i) => {
     const hd = res.handednesses?.[i]?.[0];
-    if (hd && hd.score < .6) return;                       // 信心太低的手直接忽略
+    if (hd && hd.score < .8) return;                       // 信心太低的手直接忽略
     let key = hd?.categoryName || "h" + i;
     if (seen.has(key)) key += i; seen.add(key);
     const tr = track[key] || (track[key] = { votes: [], pose: "none", hist: [], held: 0, sm: null, missing: 0 });
@@ -1012,11 +1027,13 @@ function detect() {
     const k = Math.min(.9, .35 + move * 12);
     tr.sm.forEach((p, j) => { p.x += (raw[j].x - p.x) * k; p.y += (raw[j].y - p.y) * k; p.z += (raw[j].z - p.z) * k; });
     const lm = tr.sm;
-    // 投票：最近 7 幀裡同一手勢至少 5 次才切換（握拳 3 次，出拳要快）
-    tr.votes.push(pose(lm)); if (tr.votes.length > 7) tr.votes.shift();
+    // 太小（離鏡頭太遠）的手不判斷手勢，避免背景誤判
+    const palmPx = dist(toScreen(lm[0]), toScreen(lm[9]));
+    // 投票：最近 9 幀裡同一手勢至少 7 次才切換（握拳 5 次，出拳要快）
+    tr.votes.push(palmPx < M * .06 ? "none" : pose(lm)); if (tr.votes.length > 9) tr.votes.shift();
     const cnt = {}; tr.votes.forEach(v => cnt[v] = (cnt[v] || 0) + 1);
     const [best, bc] = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
-    const need = best === "fist" ? 3 : 5;
+    const need = best === "fist" ? 5 : 7;
     if (bc >= need && best !== tr.pose) { tr.pose = best; tr.held = 0; } else tr.held++;
     const pts = lm.map(toScreen);
     const c = { x: (pts[0].x + pts[9].x) / 2, y: (pts[0].y + pts[9].y) / 2 };
@@ -1076,18 +1093,19 @@ function loop() {
   // --- 雙手組合 ---
   if (hands.length === 2 && !used.size) {
     const [A, B] = hands, close = dist(A.c, B.c) < M * .2;
-    const both = p => A.pose === p && B.pose === p;
+    const both = p => A.pose === p && B.pose === p && A.held > 5 && B.held > 5;
     if (both("peace")) { infiniteVoid(); say("領域展開・無量空處", "#cdf", "五條悟"); }
     else if (both("horns")) { shrine(); say("領域展開・伏魔御廚子", "#f33", "兩面宿儺"); }
     else if (both("shaka")) { chimeraGarden(); say("領域展開・嵌合暗翳庭", "#8af", "伏黑惠"); }
     else if (both("open") && dist(A.pts[4], B.pts[4]) < dist(A.pts[0], A.pts[9]) * 1.6 && dist(A.c, B.c) < dist(A.pts[0], A.pts[9]) * 3.2) { nue(A, B); say("十種影法術・鵺", "#9cf", "伏黑惠"); }
-    else if (close && ((A.pose === "fist" && B.pose === "open") || (A.pose === "open" && B.pose === "fist"))) {
+    else if (close && A.held > 5 && B.held > 5 && ((A.pose === "fist" && B.pose === "open") || (A.pose === "open" && B.pose === "fist"))) {
       mahoraga(A, B); say("八握劍異戒神將・魔虛羅", "#eed", "伏黑惠");
     }
     else if (close && A.speed < M * .05 && B.speed < M * .05 && both("fist")) {
       piercingBlood(A, B); say("赤血操術・穿血", "#f33", "脹相");
     }
-    if (labels.length) hands.forEach(h => used.add(h.key));
+    // 兩手靠在一起、雙手術式還在確認中：先不出單手特效，避免畫面亂
+    if (labels.length || dist(A.c, B.c) < M * .3) hands.forEach(h => used.add(h.key));
   }
   if (!labels.some(l => l.who === "脹相")) choCharge = 0;
 
@@ -1102,13 +1120,13 @@ function loop() {
         if (!tryLaunch(h, "red", h.pts[8])) red(h.pts[8]);
         say("術式反轉「赫」", "#f44", "五條悟"); break;
       case "peace":
-        if (h.speed > M * .06 && h.held > 4) { cleave(h); say("解", "#f33", "兩面宿儺"); }
+        if (h.speed > M * .06 && h.held > 8) { cleave(h); say("解", "#f33", "兩面宿儺"); }
         break;
       case "horns": cursedSpirits(h.c); say("咒靈操術", "#b6f", "夏油傑"); break;
       case "shaka": divineDogs(h.c); say("十種影法術・玉犬", "#8af", "伏黑惠"); break;
       case "thumb": fuga(h); say("「開」", "#fa3", "兩面宿儺"); break;
       case "fist":
-        if (h.speed > M * .07 && h.held > 4 && !flashes[h.key]) { blackFlash(h); cursedAura(h, 2.2); say("黑閃", "#f22", "虎杖悠仁"); }
+        if (h.speed > M * .07 && h.held > 6 && !flashes[h.key]) { blackFlash(h); cursedAura(h, 2.2); say("黑閃", "#f22", "虎杖悠仁"); }
         else { cursedAura(h); say("咒力", "#f55", "虎杖悠仁"); }
         break;
     }
