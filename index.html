@@ -15,8 +15,9 @@
   }
   #guide {
     position: absolute; left: 12px; bottom: 12px; background: rgba(0,0,0,.55); padding: 10px 14px;
-    border-radius: 10px; font-size: 13px; line-height: 1.7; backdrop-filter: blur(4px);
+    border-radius: 10px; font-size: 13px; line-height: 1.7; backdrop-filter: blur(4px); display: none;
   }
+  #guide.show { display: block; }
   #guide b { color: #9cf; }
   #start {
     position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -238,6 +239,8 @@ function drawHand(pts) {
 
 // ---------- 主迴圈 ----------
 const prevFist = {};
+const stable = {};
+addEventListener("keydown", e => { if (e.key === "h" || e.key === "H") document.getElementById("guide").classList.toggle("show"); });
 let lastT = -1, hold = { name: "", n: 0 };
 function loop() {
   t++;
@@ -251,6 +254,12 @@ function loop() {
   } else hands = loop.hands || [];
 
   let label = "", color = "#fff";
+  hands.forEach((h, i) => {
+    const s = stable[i] || (stable[i] = { raw: "", n: 0, pose: "none" });
+    if (h.pose === s.raw) s.n++; else { s.raw = h.pose; s.n = 0; }
+    if (s.n >= 6 || h.pose === "fist") s.pose = h.pose;
+    h.pose = s.pose;
+  });
   const poses = hands.map(h => h.pose);
   const center = h => toScreen({ x: (h.lm[0].x + h.lm[9].x) / 2, y: (h.lm[0].y + h.lm[9].y) / 2 });
 
