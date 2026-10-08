@@ -279,6 +279,14 @@ function vein(g, pts, w = 2.5) {
   for (let k = 1; k < pts.length; k++) g.quadraticCurveTo(pts[k - 1][0] + 8, pts[k - 1][1] + 6, ...pts[k]);
   g.stroke();
 }
+// 邊緣光：把剪影往左上移一點，再挖掉原本的剪影，只剩左上方一圈細邊
+function rimOf(src, dx = -10, dy = -8) {
+  const c = canvas(src.width, src.height), g = c.getContext("2d");
+  g.drawImage(src, dx, dy);
+  g.globalCompositeOperation = "source-in"; g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+  g.globalCompositeOperation = "destination-out"; g.drawImage(src, 0, 0);
+  return c;
+}
 function makeMahoraga() {
   const W = 1300, H = 1700, c = canvas(W, H), g = c.getContext("2d");
   const ox = W / 2, oy = H;
@@ -289,22 +297,25 @@ function makeMahoraga() {
   // ---- 背後的大羽翼（往上往外展開）----
   const feather = (len, wid) => { const p = new Path2D(); p.moveTo(0, -wid * .45); p.bezierCurveTo(len * .3, -wid * 1.05, len * .78, -wid * .7, len, 0); p.bezierCurveTo(len * .8, wid * .5, len * .3, wid * .75, 0, wid * .45); p.closePath(); return p; };
   // 每一邊是一片鳥翼：沿著翼骨（從頭側往外上方）排羽毛，越外側越長、越往上翹
+  // 翅膀畫在獨立的畫布上，程式裡才能讓左右兩片各自拍動
+  const wc = canvas(W, H), wg = wc.getContext("2d");
+  wg.translate(ox, oy);
   for (const s of [-1, 1]) {
-    g.save(); g.scale(s, 1);
+    wg.save(); wg.scale(s, 1);
     for (let tier = 0; tier < 2; tier++) {
       for (let k = 7; k >= 0; k--) {
         const f = k / 7, bx = 70 + f * 230, by = -1010 - f * 190 - tier * 30;
         const len = (tier ? 200 : 300) + f * (tier ? 120 : 200), ang = -.18 - f * .55 - tier * .25;
-        g.save(); g.translate(bx, by); g.rotate(ang);
-        cel(g, feather(len, tier ? 34 : 44), "#f8f8fb", "#bcb9cb", 0, 12, LN, 4);
-        g.strokeStyle = "#9d99b2"; g.lineWidth = 2; g.beginPath(); g.moveTo(12, 0); g.lineTo(len * .9, 0); g.stroke();
-        g.restore();
+        wg.save(); wg.translate(bx, by); wg.rotate(ang);
+        cel(wg, feather(len, tier ? 34 : 44), "#f8f8fb", "#bcb9cb", 0, 12, LN, 4);
+        wg.strokeStyle = "#9d99b2"; wg.lineWidth = 2; wg.beginPath(); wg.moveTo(12, 0); wg.lineTo(len * .9, 0); wg.stroke();
+        wg.restore();
       }
     }
     // 翼骨
-    g.strokeStyle = LN; g.lineWidth = 5; g.lineCap = "round";
-    g.beginPath(); g.moveTo(60, -1000); g.quadraticCurveTo(200, -1080, 310, -1210); g.stroke();
-    g.restore();
+    wg.strokeStyle = LN; wg.lineWidth = 5; wg.lineCap = "round";
+    wg.beginPath(); wg.moveTo(60, -1000); wg.quadraticCurveTo(200, -1080, 310, -1210); wg.stroke();
+    wg.restore();
   }
   // ---- 頭頂往上捲的長角 ----
   const HEAD_T = () => { g.translate(0, -960); g.scale(1.32, 1.32); g.translate(0, 960); };
@@ -442,7 +453,7 @@ function makeMahoraga() {
     g.restore();
   }
   g.restore();
-  return { img: c, ox, oy, headY: -1000, wheelY: -1330 };
+  return { img: c, wings: wc, rim: rimOf(c), wingRim: rimOf(wc), ox, oy, headY: -1000, wheelY: -1330, wingRoot: 70 };
 }
 
 function makeWheel() {

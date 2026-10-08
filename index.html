@@ -45,6 +45,7 @@
   <filter id="gooEdge"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 28 -9"/><feMorphology operator="dilate" radius="8"/><feComponentTransfer><feFuncA type="linear" slope="3"/></feComponentTransfer></filter>
   <filter id="gooFill"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -9"/></filter>
   <filter id="shadowRim"><feGaussianBlur stdDeviation="8"/><feColorMatrix values="0 0 0 0 .2  0 0 0 0 .5  0 0 0 0 1  0 0 0 28 -9"/><feMorphology operator="dilate" radius="5"/><feGaussianBlur stdDeviation="3"/></filter>
+  <filter id="curseRim"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 .65  0 0 0 0 .25  0 0 0 0 1  0 0 0 28 -9"/><feMorphology operator="dilate" radius="4"/><feGaussianBlur stdDeviation="3"/></filter>
   <filter id="shadowBody"><feGaussianBlur stdDeviation="8"/><feColorMatrix values="0 0 0 0 .01  0 0 0 0 .01  0 0 0 0 .04  0 0 0 28 -9"/></filter>
 </svg>
 <div class="bar" id="barT"></div><div class="bar" id="barB"></div>
@@ -67,7 +68,7 @@
   <i>夏油傑</i><br>
   <b>食指 + 小指</b> 咒靈操術<br>
   <i>兩面宿儺</i><br>
-  <b>比 YA 快速揮砍</b> 解　<b>只伸拇指</b> 「開」<br>
+  <b>比 YA 快速揮砍</b> 解　<b>只伸拇指</b> 「開」（<b>揮手</b> 發射）<br>
   <b>雙手 食指 + 小指</b> 領域展開・伏魔御廚子<br>
   <i>兩隻手可以同時用不同術式・按 H 關閉</i>
 </div>
@@ -88,14 +89,19 @@ const ctx = cv.getContext("2d");
 const lightC = document.createElement("canvas"), L = lightC.getContext("2d");   // 發光層（加亮 + bloom）
 const darkC = document.createElement("canvas"), D = darkC.getContext("2d");     // 黑色層（影子、黑閃）
 const gooC = document.createElement("canvas"), G = gooC.getContext("2d");
-const shC = document.createElement("canvas"), S = shC.getContext("2d");      // 影子液體（伏黑惠）    // 咒力液體（metaball）
+const shC = document.createElement("canvas"), S = shC.getContext("2d");
+const csC = document.createElement("canvas"), CS = csC.getContext("2d");      // 咒靈的身體（夏油傑）
+const bloomC = document.createElement("canvas"), B = bloomC.getContext("2d");      // 半解析度 bloom
+const snapC = document.createElement("canvas"), SN = snapC.getContext("2d");
+const snap2C = document.createElement("canvas"), S2 = snap2C.getContext("2d");      // 扭曲、色差用的畫面快照      // 影子液體（伏黑惠）    // 咒力液體（metaball）
 const hud = document.getElementById("hud");
 const nameEl = document.getElementById("name"), userEl = document.getElementById("user");
 const statusEl = document.getElementById("status");
 let W, H, M;
 function resize() {
-  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = innerWidth;
-  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = innerHeight;
+  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = innerWidth;
+  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = innerHeight;
+  bloomC.width = Math.ceil(W / 2); bloomC.height = Math.ceil(H / 2);
   M = Math.min(W, H);
 }
 addEventListener("resize", resize); resize();
@@ -308,7 +314,10 @@ const POSE_NAME = { open: "張開", point: "食指", peace: "YA", horns: "食指
 // ================= 工具 =================
 const rnd = (a, b) => a + Math.random() * (b - a);
 const TAU = Math.PI * 2;
-let t = 0, shake = 0, whiteout = 0;
+let t = 0, shake = 0, whiteout = 0, punch = 0, aberr = 0;
+const warps = [];   // 空間扭曲：{x, y, r, k（正＝往內吸、負＝往外推）, tw（旋轉）}
+function warp(x, y, r, k, tw = 0) { warps.push({ x, y, r, k, tw }); }
+function impact(p, a, sh = 0) { punch = Math.max(punch, p); aberr = Math.max(aberr, a); shake = Math.max(shake, sh); }
 const parts = [], rings = [], slashes = [];
 function spawn(o) { parts.push(Object.assign({ vx: 0, vy: 0, life: 1, decay: .02, w: 2, color: "#fff", g: 0, layer: L }, o)); }
 function ring(x, y, color, speed = 18, w = 6) { rings.push({ x, y, r: 10, color, speed, w, life: 1 }); }
@@ -427,6 +436,7 @@ function blue(c) {
   speedLines(L, c.x, c.y, "#9cf", 30, .2);
   ribbons("blue", c, "rgba(60,150,255,.6)", 4, .8);
   blueOrb(c); flare(c.x, c.y, "#29f", .9);
+  warp(c.x, c.y, M * .24, .5, 1.4);                         // 空間被往內吸、扭轉
   if (t % 14 === 0) ring(c.x, c.y, "#6cf", -10, 4);
 }
 function redOrb(c, s = 1) {
@@ -444,6 +454,7 @@ function red(c) {
   redOrb(c, .8);
   if (Math.random() < .4) spawn({ x: c.x + rnd(-20, 20), y: c.y, vx: rnd(-4, 4), vy: rnd(-6, -1), g: .5, color: "#a00", w: rnd(3, 7), decay: .015, blob: 1 });
   flare(c.x, c.y, "#f22", 1.1);
+  warp(c.x, c.y, M * .18, -.45 - .1 * Math.sin(t * .4));     // 往外推開
   if (t % 10 === 0) ring(c.x, c.y, "#f44", 22, 5);
   shake = Math.max(shake, 3);
 }
@@ -463,26 +474,34 @@ function updateProjs() {
     const out = p.x < -M * .2 || p.x > W + M * .2 || p.y < -M * .2 || p.y > H + M * .2;
     if (p.type === "blue") {
       setGrade("rgba(0,90,255,.45)", .55, .6);
-      blueOrb(p, 1.1);
+      blueOrb(p, 1.1); warp(p.x, p.y, M * .26, .55, 1.6);
       for (let j = 0; j < 6; j++) {                           // 沿途把東西吸進去
         const a = rnd(0, TAU), r = M * rnd(.15, .35);
         spawn({ x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r, pull: p, color: "#9df", w: 2, decay: .03 });
       }
       flare(p.x, p.y, "#29f", .7);
+    } else if (p.type === "fire") {
+      setGrade("rgba(255,90,0,.5)", .65, .5);
+      fireArrow(p.x, p.y, p.vx, p.vy, M * .3);
+      warp(p.x, p.y, M * .12, -.3);
     } else {
       setGrade("rgba(255,20,30,.45)", .6, .5);
-      redOrb(p, 1.1);
+      redOrb(p, 1.1); warp(p.x, p.y, M * .2, -.5);
       L.strokeStyle = "rgba(255,80,80,.7)"; L.lineWidth = M * .02; L.lineCap = "round";
       L.beginPath(); L.moveTo(p.x, p.y); L.lineTo(p.x - p.vx * 5, p.y - p.vy * 5); L.stroke();
       flare(p.x, p.y, "#f22", .8);
     }
     if (p.life <= 0 || out) {
       const ex = Math.min(W, Math.max(0, p.x)), ey = Math.min(H, Math.max(0, p.y));
-      if (p.type === "red") {                                  // 赫：爆開
+      if (p.type === "fire") {                                 // 開：火焰爆炸
+        for (let j = 0; j < 70; j++) { const a = rnd(0, TAU), v = rnd(3, 18); spawn({ x: ex, y: ey, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 3, g: -.12, color: ["#fff2a0", "#ffb030", "#ff5a10", "#c01800"][(Math.random() * 4) | 0], w: rnd(6, 18), decay: rnd(.015, .03), blob: 1 }); }
+        for (let j = 0; j < 20; j++) { const a = rnd(0, TAU), v = rnd(1, 6); spawn({ layer: D, x: ex, y: ey, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 2, g: -.05, color: "rgba(20,10,8,.7)", w: rnd(14, 30), decay: .01, blob: 1 }); }
+        ring(ex, ey, "#fb4", 30, 10); ring(ex, ey, "#fff", 20, 3); whiteout = 6; impact(.08, 14, 28); warp(ex, ey, M * .35, -.6);
+      } else if (p.type === "red") {                          // 赫：爆開
         for (let j = 0; j < 60; j++) { const a = rnd(0, TAU), v = rnd(8, 28); spawn({ x: ex, y: ey, vx: Math.cos(a) * v, vy: Math.sin(a) * v, color: Math.random() < .4 ? "#fff" : "#f22", w: rnd(2, 4), decay: .035 }); }
-        ring(ex, ey, "#f33", 34, 10); ring(ex, ey, "#fff", 22, 3); shake = 24; whiteout = 5;
+        ring(ex, ey, "#f33", 34, 10); ring(ex, ey, "#fff", 22, 3); whiteout = 5; impact(.07, 12, 24); warp(ex, ey, M * .4, -.7);
       } else {                                                 // 蒼：向內塌縮
-        ring(ex, ey, "#6cf", -14, 6); ring(ex, ey, "#fff", -9, 3); shake = 14;
+        ring(ex, ey, "#6cf", -14, 6); ring(ex, ey, "#fff", -9, 3); impact(.04, 8, 14); warp(ex, ey, M * .4, .8, 2.5);
       }
       projs.splice(k, 1);
     }
@@ -521,9 +540,10 @@ function purpleCharge(c) {
     L.stroke();
   }
   glow(L, mid.x, mid.y, M * .05 * (1 + P.charge), [[0, "#fff"], [.4, "rgba(190,90,255,.8)"], [1, "rgba(80,0,160,0)"]]);
-  if (P.charge >= 1) { P.state = "fused"; P.pos = mid; P.prev = null; whiteout = 8; shake = 20; ring(mid.x, mid.y, "#e9f", 30, 8); ring(mid.x, mid.y, "#fff", 22, 3); }
+  if (P.charge >= 1) { P.state = "fused"; P.pos = mid; P.prev = null; whiteout = 8; impact(.06, 10, 20); ring(mid.x, mid.y, "#e9f", 30, 8); ring(mid.x, mid.y, "#fff", 22, 3); }
 }
 function purpleOrb(c, s = 1) {
+  warp(c.x, c.y, M * .32 * s, .65, -2);
   setGrade("rgba(140,40,255,.5)", .7, .35);
   const R = M * .11 * s * (1 + Math.sin(t * .2) * .05);
   // 紫色漩渦霧氣 + 旋轉拖影
@@ -555,6 +575,7 @@ function purpleOrb(c, s = 1) {
 }
 function purpleFire() {
   const o = P.origin, dir = P.dir, f = P.fire;
+  for (let k = 1; k <= 3; k++) warp(o.x + dir.x * M * .35 * k, o.y + dir.y * M * .35 * k, M * .22, -.5 * (f / 45));
   setGrade("rgba(160,60,255,.6)", .85, .2);
   const len = Math.hypot(W, H) * 1.2, prog = Math.min(1, (45 - f) / 8);
   const wdt = M * .16 * (f > 10 ? 1 : f / 10);
@@ -594,31 +615,61 @@ function updatePurple(holder, released = false, dir = null) {
   purpleOrb(P.pos);
   if (sp > M * .045 || (released && dir)) {
     P.state = "fire"; P.fire = 45; P.origin = P.pos; P.dir = sp > M * .045 ? { x: v.x / sp, y: v.y / sp } : dir;
-    whiteout = 14; shake = 40; ring(P.pos.x, P.pos.y, "#fff", 40, 10); ring(P.pos.x, P.pos.y, "#c8f", 28, 6);
+    whiteout = 14; impact(.12, 22, 40); ring(P.pos.x, P.pos.y, "#fff", 40, 10); ring(P.pos.x, P.pos.y, "#c8f", 28, 6);
   }
   return true;
 }
 const stars = Array.from({ length: 400 }, () => ({ x: Math.random(), y: Math.random(), s: Math.random() * 2.5, p: Math.random() * TAU }));
-function infiniteVoid() {
-  setGrade("rgba(20,30,80,.6)", .92, .2);
-  const cx = W / 2, cy = H / 2, z = 1 + (t % 600) / 600;
-  for (const s of stars) {
-    L.globalAlpha = .4 + .6 * Math.abs(Math.sin(t * .04 + s.p));
-    const x = cx + (s.x - .5) * W * z, y = cy + (s.y - .5) * H * z;
-    if (s.s > 2.2) sparkle(x, y, 8); else { L.fillStyle = "#fff"; L.fillRect(x, y, s.s, s.s); }
+// 領域展開的開場：從手部擴張出的黑色球體，領域內容只在球體內出現
+function domainIntro(id, c, rim) {
+  const ms = summonTime(id), DUR = 650;
+  if (ms >= DUR) { if (!shikiState[id].opened) { shikiState[id].opened = true; whiteout = 7; impact(.08, 14, 26); } return null; }
+  shikiState[id].opened = false;
+  const f = ms / DUR, R = Math.hypot(W, H) * 1.05 * (1 - Math.pow(1 - f, 3));
+  D.fillStyle = "rgba(0,0,0,.92)"; D.beginPath(); D.arc(c.x, c.y, R, 0, TAU); D.fill();
+  L.strokeStyle = rim; L.lineWidth = 6; L.beginPath(); L.arc(c.x, c.y, R, 0, TAU); L.stroke();
+  L.lineWidth = 2; L.beginPath(); L.arc(c.x, c.y, R * .94, 0, TAU); L.stroke();
+  warp(c.x, c.y, Math.min(R, M * .6), .4 * (1 - f), 2);
+  if (ms < 60) impact(.05, 10, 16);
+  const clip = g => { g.save(); g.beginPath(); g.arc(c.x, c.y, R, 0, TAU); g.clip(); };
+  clip(L); clip(D);
+  return () => { L.restore(); D.restore(); };
+}
+const voidStars = Array.from({ length: 260 }, () => ({ a: rnd(0, TAU), d: rnd(.01, 1), v: rnd(1.015, 1.045), c: Math.random() }));
+function infiniteVoid(hc) {
+  setGrade("rgba(20,30,80,.6)", .95, .15);
+  const cx = W / 2, cy = H / 2, endClip = domainIntro("void", hc, "rgba(190,215,255,.95)");
+  D.fillStyle = "rgba(2,3,12,.55)"; D.fillRect(0, 0, W, H);
+  // 星雲
+  const now = performance.now() / 1000;
+  for (const [ox, oy, r, col] of [[-.25, -.15, .7, "rgba(60,90,255,.22)"], [.3, .1, .6, "rgba(170,60,255,.2)"], [.05, .3, .5, "rgba(255,90,200,.12)"]]) {
+    const x = cx + (ox + .05 * Math.sin(now * .3 + r * 10)) * W, y = cy + (oy + .05 * Math.cos(now * .25 + r * 7)) * H;
+    glow(L, x, y, M * r, [[0, col], [1, "rgba(0,0,0,0)"]]);
   }
-  L.globalAlpha = 1;
-  for (let k = 0; k < 10; k++) {
-    L.strokeStyle = `rgba(180,210,255,${.4 - k * .03})`; L.lineWidth = 1.5;
-    L.beginPath(); L.arc(cx, cy, (t * 4 + k * 90) % (M * 1.2), 0, TAU); L.stroke();
+  // 超光速的星流（資訊不斷湧入）
+  const diag = Math.hypot(W, H) * .6;
+  L.lineCap = "round";
+  for (const st of voidStars) {
+    const d0 = st.d; st.d *= st.v; if (st.d > 1.1) { st.d = rnd(.01, .05); st.a = rnd(0, TAU); }
+    const x0 = cx + Math.cos(st.a) * d0 * diag, y0 = cy + Math.sin(st.a) * d0 * diag, x1 = cx + Math.cos(st.a) * st.d * diag * 1.04, y1 = cy + Math.sin(st.a) * st.d * diag * 1.04;
+    L.strokeStyle = st.c < .7 ? `rgba(220,235,255,${Math.min(1, st.d * 1.5)})` : `rgba(190,150,255,${Math.min(1, st.d * 1.5)})`;
+    L.lineWidth = .5 + st.d * 2.5;
+    L.beginPath(); L.moveTo(x0, y0); L.lineTo(x1, y1); L.stroke();
   }
-  glow(L, cx, cy, M * .35, [[0, "#fff"], [.1, "rgba(220,235,255,1)"], [.4, "rgba(80,110,255,.4)"], [1, "rgba(0,0,40,0)"]]);
+  for (let k = 0; k < 8; k++) {
+    L.strokeStyle = `rgba(180,210,255,${.35 - k * .03})`; L.lineWidth = 1.5;
+    L.beginPath(); L.arc(cx, cy, (t * 4 + k * 110) % (M * 1.2), 0, TAU); L.stroke();
+  }
+  glow(L, cx, cy, M * .3, [[0, "#fff"], [.1, "rgba(220,235,255,1)"], [.4, "rgba(80,110,255,.4)"], [1, "rgba(0,0,40,0)"]]);
   flare(cx, cy, "#9bf", 1.6);
+  warp(cx, cy, M * .35, .25, 1);
+  if (endClip) endClip();
 }
 
 // ================= 虎杖：咒力包覆 + 黑閃 =================
 // 咒力像黏稠液體包覆整隻手：外圈黑色輪廓（黑色層）+ 內部紅色發光（亮層）
-let gooUsed = false, shadowUsed = false;
+let gooUsed = false, shadowUsed = false, curseUsed = false;
+const post = [];   // 在液體圖層合成之後才畫的東西（眼睛、嘴巴）
 function gooBlob(x, y, r) {
   gooUsed = true;
   G.fillStyle = "rgb(235,10,30)"; G.beginPath(); G.arc(x, y, r, 0, TAU); G.fill();
@@ -629,6 +680,13 @@ function flushGoo() {
   D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none";
   L.globalAlpha = .35; L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; L.globalAlpha = 1;
   G.clearRect(0, 0, W, H); gooUsed = false;
+  }
+  if (curseUsed) {
+    L.globalAlpha = .85; L.filter = "url(#curseRim)"; L.drawImage(csC, 0, 0);
+    L.globalCompositeOperation = "destination-out"; L.filter = "url(#shadowBody)"; L.drawImage(csC, 0, 0);
+    L.globalCompositeOperation = "source-over"; L.filter = "none"; L.globalAlpha = 1;
+    D.filter = "url(#shadowBody)"; D.drawImage(csC, 0, 0); D.filter = "none";
+    CS.clearRect(0, 0, W, H); curseUsed = false;
   }
   if (!shadowUsed) return;
   // 影子：藍色輪廓光 → 挖掉本體 → 本體畫成近乎全黑
@@ -682,6 +740,7 @@ function cursedAura(h, power = 1) {
 const flashes = {};
 function blackFlash(h) {
   flashes[h.key] = { n: 18, c: { ...h.c } };
+  impact(.09, 16, 30); warp(h.c.x, h.c.y, M * .3, -.6);
   shake = 30;
   for (let k = 0; k < 70; k++) {
     const a = Math.random() * TAU, v = rnd(6, 20);
@@ -716,8 +775,32 @@ function piercingBlood(a, b) {
   // 方向：手腕 → 指根，兩手平均（雙手往前推的方向）
   let dx = (a.pts[9].x - a.pts[0].x) + (b.pts[9].x - b.pts[0].x), dy = (a.pts[9].y - a.pts[0].y) + (b.pts[9].y - b.pts[0].y);
   dx = dx < 0 ? -1 : 1; dy = 0;                            // 血槍永遠水平射出，往手指指的那一側
-  choCharge = Math.min(1, choCharge + .06);
+  // 第一段「百斂」：血在雙拳之間被壓縮成球；第二段「穿血」：一口氣射出
+  const ms = summonTime("cho"), CH = 650;
+  if (ms < CH) {
+    const f = ms / CH, r = M * (.012 + .03 * f) * (1 + .08 * Math.sin(t * 1.3));
+    for (let k = 0; k < 6; k++) {
+      const a = rnd(0, TAU), rr = M * rnd(.1, .22) * (1.2 - f);
+      spawn({ x: c.x + Math.cos(a) * rr, y: c.y + Math.sin(a) * rr, pull: c, color: Math.random() < .3 ? "#ff6060" : "#b00010", w: rnd(2, 4), decay: .035 });
+    }
+    glow(D, c.x, c.y, r * 1.5, [[0, "rgba(60,0,0,1)"], [.7, "rgba(90,0,0,.9)"], [1, "rgba(0,0,0,0)"]]);
+    glow(L, c.x, c.y, r * 1.2, [[0, "rgba(255,140,140,.9)"], [.3, "rgba(220,0,20,.9)"], [1, "rgba(80,0,0,0)"]]);
+    L.strokeStyle = `rgba(255,60,60,${.3 + .5 * f})`; L.lineWidth = 2;
+    for (let k = 0; k < 3; k++) { L.beginPath(); L.arc(c.x, c.y, r * (1.6 + k * .5) * (1 - ((t * .05 + k * .33) % 1) * .5), 0, TAU); L.stroke(); }
+    warp(c.x, c.y, M * .12, .35 * f, 1);
+    shake = Math.max(shake, 2 + 4 * f);
+    choCharge = 0;
+    return "百斂";
+  }
+  if (choCharge === 0) { impact(.07, 12, 22); ring(c.x, c.y, "#f33", 26, 8); whiteout = 3; }
+  choCharge = Math.min(1, (ms - CH) / 160);
   const len = Math.hypot(W, H) * .8 * choCharge, w = M * .022 * (1 + Math.sin(t * .9) * .2);
+  // 沿著血槍往外擴散的音爆環
+  for (let k = 0; k < 5; k++) {
+    const pos = ((t * 18 + k * len / 5) % Math.max(1, len)), q = pos / Math.max(1, len);
+    L.strokeStyle = `rgba(255,120,120,${.5 * (1 - q)})`; L.lineWidth = 2.5;
+    L.beginPath(); L.ellipse(c.x + dx * pos, c.y, w * (1 + q * 2), w * (2 + q * 7), 0, 0, TAU); L.stroke();
+  }
   const ang = Math.atan2(dy, dx);
   // 暗紅血槍本體（黑色層）+ 發光邊緣（亮層）
   for (const [g, ww, col] of [[D, w * 1.3, "rgba(70,0,0,.95)"], [L, w * 2.5, "rgba(255,0,0,.3)"], [L, w * .5, "rgba(255,60,60,1)"], [L, w * .15, "#fff"]]) {
@@ -749,6 +832,7 @@ function piercingBlood(a, b) {
   glow(L, c.x, c.y, M * .1, [[0, "#fff"], [.25, "#f33"], [1, "rgba(100,0,0,0)"]]);
   flare(c.x, c.y, "#f11", 1);
   shake = Math.max(shake, 4);
+  return "穿血";
 }
 
 // ================= 伏黑惠 =================
@@ -795,7 +879,8 @@ function divineDogs(c) {
   wolf(c.x + M * .15, gy - M * .03, s, false, -1, Math.max(0, ease - .15) / .85);
   if (first) { ring(c.x, gy, "#5af", 14, 3); shake = 6; }
 }
-function chimeraGarden() {
+function chimeraGarden(hc) {
+  const endClip = domainIntro("garden", hc, "rgba(120,170,255,.95)");
   const now = performance.now();
   if (now - shadowState.lastGarden > 1000) shadowState.garden = now;
   shadowState.lastGarden = now;
@@ -815,21 +900,54 @@ function chimeraGarden() {
     const x = (k + .5) / 10 * W, y = sea + M * (.12 + .1 * Math.abs(Math.sin(k * 2.7))), blink = Math.sin(t * .05 + k * 3) > -.9;
     if (blink && e > .6) for (const sx of [-1, 1]) glow(L, x + sx * 10, y, 9, [[0, "#fff"], [.3, k % 3 ? "#7cf" : "#f44"], [1, "rgba(0,0,0,0)"]]);
   }
+  if (endClip) endClip();
 }
 
 // ================= 夏油傑 =================
-const curses = Array.from({ length: 10 }, (_, k) => ({ a: k * .63, r: .15 + (k % 3) * .07, s: .02 + k * .003, hue: 90 + k * 25 }));
+// 咒靈：黑色黏液般的身體 + 紫色輪廓光，眼睛和嘴在液體合成之後才畫上去
+const curses = Array.from({ length: 9 }, (_, k) => ({
+  a: k * .7, r: .14 + (k % 3) * .07, s: (.012 + k * .002) * (k % 2 ? 1 : -1), size: rnd(.028, .05),
+  eyes: 1 + (k * 7) % 4, eyeCol: ["#ffe14a", "#ff4a3a", "#c8ff4a", "#fff"][k % 4], trail: [], ph: rnd(0, TAU)
+}));
+function blobC(x, y, r) { CS.fillStyle = "#000"; CS.beginPath(); CS.arc(x, y, Math.max(1, r), 0, TAU); CS.fill(); curseUsed = true; }
 function cursedSpirits(c) {
-  setGrade("rgba(90,0,90,.45)", .7, .3);
-  glow(D, c.x, c.y, M * .4, [[0, "rgba(20,0,20,.8)"], [1, "rgba(0,0,0,0)"]]);
-  for (const q of curses) {
-    q.a += q.s; const x = c.x + Math.cos(q.a) * M * q.r * 1.6, y = c.y + Math.sin(q.a) * M * q.r;
-    spawn({ x, y, color: `hsl(${q.hue},90%,55%)`, w: 5, decay: .05, blob: 1 });
-    glow(L, x, y, 30, [[0, "#fff"], [.25, `hsl(${q.hue},90%,60%)`], [1, "rgba(0,0,0,0)"]]);
-    D.fillStyle = "#000"; D.beginPath(); D.arc(x - 8, y - 3, 4, 0, TAU); D.arc(x + 8, y - 3, 4, 0, TAU); D.fill();
+  setGrade("rgba(90,0,110,.5)", .75, .3);
+  // 中央的咒靈玉與漩渦
+  for (let arm = 0; arm < 3; arm++) for (let k = 0; k < 14; k++) {
+    const f = k / 14, a = -t * .05 + arm * TAU / 3 + f * 4.5, r = M * (.03 + f * .22);
+    blobC(c.x + Math.cos(a) * r * 1.3, c.y + Math.sin(a) * r * .8, M * .018 * (1 - f * .7));
   }
-  glow(D, c.x, c.y, 34, [[0, "#000"], [.7, "#100"], [1, "rgba(0,0,0,0)"]]);
-  glow(L, c.x, c.y, 50, [[0, "rgba(0,0,0,0)"], [.6, "rgba(0,0,0,0)"], [.8, "#a6f"], [1, "rgba(0,0,0,0)"]]);
+  blobC(c.x, c.y, M * .045 * (1 + .08 * Math.sin(t * .2)));
+  for (const q of curses) {
+    q.a += q.s;
+    const x = c.x + Math.cos(q.a) * M * q.r * 1.7, y = c.y + Math.sin(q.a) * M * q.r * 1.05;
+    q.trail.unshift({ x, y }); if (q.trail.length > 10) q.trail.pop();
+    const R = M * q.size;
+    q.trail.forEach((p, i) => blobC(p.x, p.y, R * (1 - i / 11) * .8));            // 拖尾
+    for (let k = 0; k < 4; k++) {                                                   // 身體上蠕動的肉瘤
+      const a = q.ph + k * TAU / 4 + Math.sin(t * .1 + k) * .5;
+      blobC(x + Math.cos(a) * R * .7, y + Math.sin(a) * R * .7, R * (.55 + .15 * Math.sin(t * .15 + k)));
+    }
+    blobC(x, y, R);
+    post.push(() => {
+      // 眼睛（不透明，畫在黑色層上，再加一點光）
+      for (let e = 0; e < q.eyes; e++) {
+        const ex = x + (e - (q.eyes - 1) / 2) * R * .55, ey = y - R * .25 + (e % 2) * R * .18, er = R * (.22 - q.eyes * .02);
+        D.fillStyle = "#f6f0d8"; D.beginPath(); D.ellipse(ex, ey, er * 1.3, er, 0, 0, TAU); D.fill();
+        D.fillStyle = q.eyeCol; D.beginPath(); D.arc(ex + Math.cos(t * .1 + e) * er * .3, ey, er * .65, 0, TAU); D.fill();
+        D.fillStyle = "#000"; D.beginPath(); D.arc(ex + Math.cos(t * .1 + e) * er * .3, ey, er * .3, 0, TAU); D.fill();
+        glow(L, ex, ey, er * 2.5, [[0, "rgba(255,240,180,.35)"], [1, "rgba(0,0,0,0)"]]);
+      }
+      // 咧開的嘴和牙齒
+      const mw = R * .9, my = y + R * .35;
+      D.fillStyle = "#3a0010"; D.beginPath(); D.ellipse(x, my, mw * .6, R * .16, 0, 0, TAU); D.fill();
+      D.fillStyle = "#f4efe2";
+      for (let k = 0; k < 6; k++) { const tx = x - mw * .5 + k * mw * .2; D.beginPath(); D.moveTo(tx, my - R * .14); D.lineTo(tx + mw * .1, my + R * .02); D.lineTo(tx + mw * .2, my - R * .14); D.fill(); }
+    });
+  }
+  // 漩渦中心的光
+  glow(L, c.x, c.y, M * .12, [[0, "rgba(0,0,0,0)"], [.5, "rgba(150,60,255,.35)"], [1, "rgba(0,0,0,0)"]]);
+  warp(c.x, c.y, M * .25, .3, -1.2);
 }
 
 // ================= 兩面宿儺 =================
@@ -843,38 +961,82 @@ function cleave(h) {   // 解：手揮過的軌跡留下斬擊
   }
   shake = Math.max(shake, 10);
 }
-function shrine() {     // 伏魔御廚子
-  setGrade("rgba(200,0,0,.6)", .9, .1);
-  D.fillStyle = "rgba(20,0,0,.35)"; D.fillRect(0, 0, W, H);
-  for (let k = 0; k < 4; k++) {
-    const x = rnd(0, W), y = rnd(0, H), a = rnd(0, TAU), l = M * rnd(.2, .7);
+function shrineArt(bx, by, s) {
+  // 伏魔御廚子：三層彎簷屋頂的神社、正面張開的大嘴、底下堆著骷髏
+  const D2 = D;
+  D2.save(); D2.translate(bx, by); D2.scale(s, s);
+  D2.fillStyle = "#0b0102";
+  D2.fillRect(-300, 300, 600, 40);                                   // 台基
+  for (const x of [-230, -120, 100, 210]) D2.fillRect(x, 60, 22, 245);  // 柱子
+  for (let tier = 0; tier < 3; tier++) {                              // 屋頂
+    const y = 60 - tier * 95, w = 330 - tier * 70;
+    D2.beginPath(); D2.moveTo(-w - 40, y + 10); D2.quadraticCurveTo(-w * .5, y - 15, 0, y - 50 - tier * 6);
+    D2.quadraticCurveTo(w * .5, y - 15, w + 40, y + 10); D2.quadraticCurveTo(w + 20, y - 5, w + 55, y - 18);
+    D2.lineTo(w - 10, y + 30); D2.lineTo(-w + 10, y + 30); D2.lineTo(-w - 55, y - 18); D2.quadraticCurveTo(-w - 20, y - 5, -w - 40, y + 10); D2.fill();
+  }
+  // 大嘴
+  D2.fillStyle = "#2a0006"; D2.beginPath(); D2.ellipse(-10, 190, 120, 75, 0, 0, TAU); D2.fill();
+  D2.fillStyle = "#e8dccb";
+  for (let k = 0; k < 9; k++) {
+    const x = -110 + k * 25;
+    D2.beginPath(); D2.moveTo(x, 135 + Math.abs(k - 4) * 4); D2.lineTo(x + 12, 172); D2.lineTo(x + 24, 135 + Math.abs(k - 4) * 4); D2.fill();
+    D2.beginPath(); D2.moveTo(x, 248 - Math.abs(k - 4) * 4); D2.lineTo(x + 12, 210); D2.lineTo(x + 24, 248 - Math.abs(k - 4) * 4); D2.fill();
+  }
+  // 骷髏堆
+  for (let k = 0; k < 26; k++) {
+    const x = -320 + (k * 37) % 640 + (k % 3) * 8, y = 330 + (k % 4) * 14 - Math.floor(k / 9) * 12;
+    D2.fillStyle = "#cfc4b2"; D2.beginPath(); D2.ellipse(x, y, 15, 13, 0, 0, TAU); D2.fill();
+    D2.fillStyle = "#1a0505"; D2.beginPath(); D2.arc(x - 5, y - 2, 3.5, 0, TAU); D2.arc(x + 5, y - 2, 3.5, 0, TAU); D2.fill();
+  }
+  D2.restore();
+  // 邊緣的紅光
+  glow(L, bx, by + 190 * s, 260 * s, [[0, "rgba(255,40,40,.3)"], [1, "rgba(0,0,0,0)"]]);
+}
+function shrine(hc) {     // 伏魔御廚子
+  setGrade("rgba(200,0,0,.6)", .93, .1);
+  const endClip = domainIntro("shrine", hc, "rgba(255,70,70,.95)");
+  // 血紅的天空
+  const sky = D.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, "rgba(90,0,8,.8)"); sky.addColorStop(.55, "rgba(30,0,2,.75)"); sky.addColorStop(1, "rgba(10,0,0,.9)");
+  D.fillStyle = sky; D.fillRect(0, 0, W, H);
+  shrineArt(W / 2, H * .3, M / 820);
+  for (let k = 0; k < 7; k++) {
+    const x = rnd(0, W), y = rnd(0, H), a = rnd(0, TAU), l = M * rnd(.15, .6);
     slash(x - Math.cos(a) * l, y - Math.sin(a) * l, x + Math.cos(a) * l, y + Math.sin(a) * l, .8);
   }
-  // 地面血泊 + 鳥居剪影（遠景）
-  glow(D, W / 2, H * 1.05, W * .6, [[0, "rgba(40,0,0,.9)"], [1, "rgba(0,0,0,0)"]]);
-  D.fillStyle = "rgba(0,0,0,.85)";
-  const bx = W / 2, by = H * .28, s = M / 700;
-  D.fillRect(bx - 260 * s, by, 520 * s, 22 * s); D.fillRect(bx - 230 * s, by + 50 * s, 460 * s, 14 * s);
-  D.fillRect(bx - 190 * s, by, 26 * s, 360 * s); D.fillRect(bx + 164 * s, by, 26 * s, 360 * s);
+  for (let k = 0; k < 4; k++) spawn({ x: rnd(0, W), y: H + 10, vx: rnd(-.5, .5), vy: rnd(-3, -1), color: Math.random() < .5 ? "#ff3020" : "#ff8040", w: rnd(2, 4), decay: .008, blob: 1 });
   shake = Math.max(shake, 3);
+  if (endClip) endClip();
 }
-function fuga(h) {      // 「開」：火焰之箭
+function fireArrow(x, y, dx, dy, len) {
+  const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
+  const fl = .85 + .15 * Math.sin(t * 1.7);
+  L.save(); L.translate(x, y); L.rotate(Math.atan2(dy, dx));
+  // 火焰尾巴（往後拖）、白熱的箭身、箭頭
+  for (const [w, col] of [[M * .045, "rgba(255,70,0,.45)"], [M * .025, "rgba(255,150,30,.8)"], [M * .009, "rgba(255,250,220,1)"]]) {
+    const g = L.createLinearGradient(-len, 0, len * .15, 0);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(.7, col); g.addColorStop(1, col);
+    L.fillStyle = g;
+    L.beginPath(); L.moveTo(len * .15, 0);
+    L.quadraticCurveTo(-len * .3, -w * fl, -len, -w * .2); L.lineTo(-len, w * .2); L.quadraticCurveTo(-len * .3, w * fl, len * .15, 0); L.fill();
+  }
+  L.fillStyle = "#fff6d0";
+  L.beginPath(); L.moveTo(len * .32, 0); L.lineTo(len * .1, -M * .022); L.lineTo(len * .14, 0); L.lineTo(len * .1, M * .022); L.closePath(); L.fill();
+  L.restore();
+  for (let k = 0; k < 8; k++) {
+    const p = rnd(0, len);
+    spawn({ x: x - dx * p, y: y - dy * p, vx: rnd(-1.5, 1.5) - dx * 3, vy: rnd(-4, -1), g: -.05, color: Math.random() < .5 ? "#ffb030" : "#ff4010", w: rnd(3, 9), decay: .045, blob: 1 });
+  }
+  glow(L, x, y, M * .09, [[0, "#fff"], [.3, "#fa3"], [1, "rgba(255,50,0,0)"]]);
+  flare(x, y, "#f80", .8, Math.atan2(dy, dx));
+}
+function fuga(h) {      // 「開」：火焰之箭（揮手發射）
   setGrade("rgba(255,90,0,.45)", .65, .5);
   const base = h.pts[2], tip = h.pts[4];
   let dx = tip.x - base.x, dy = tip.y - base.y; const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
-  const len = M * .45, s = h.pts[4];
-  L.save(); L.translate(s.x, s.y); L.rotate(Math.atan2(dy, dx));
-  const g = L.createLinearGradient(0, 0, len, 0);
-  g.addColorStop(0, "rgba(255,255,220,1)"); g.addColorStop(.6, "rgba(255,140,20,.9)"); g.addColorStop(1, "rgba(255,40,0,0)");
-  L.fillStyle = g;
-  L.beginPath(); L.moveTo(len, 0); L.lineTo(0, -M * .015); L.lineTo(-M * .04, 0); L.lineTo(0, M * .015); L.fill();
-  L.restore();
-  for (let k = 0; k < 10; k++) {
-    const p = rnd(0, len);
-    spawn({ x: s.x + dx * p, y: s.y + dy * p, vx: rnd(-1.5, 1.5) - dx * 2, vy: rnd(-4, -1), color: Math.random() < .5 ? "#ffb030" : "#ff4010", w: rnd(3, 8), decay: .04, blob: 1 });
-  }
-  glow(L, s.x, s.y, M * .08, [[0, "#fff"], [.3, "#fa3"], [1, "rgba(255,50,0,0)"]]);
-  flare(s.x, s.y, "#f80", .8);
+  if (tryLaunch(h, "fire", h.pts[4])) return;
+  fireArrow(h.pts[4].x + dx * M * .25, h.pts[4].y + dy * M * .25, dx, dy, M * .28);
+  warp(h.pts[4].x, h.pts[4].y, M * .1, -.25);
 }
 
 // ================= 伏黑惠：鵺、魔虛羅 =================
@@ -914,26 +1076,62 @@ function mahoraga(a, b) {
   setGrade("rgba(40,30,70,.6)", .9, .15);
   // 站在使用者旁邊（手的另一側），不要擋住人
   const st = shikiState.maho, hx = (a.c.x + b.c.x) / 2;
-  if (st.sideAt !== st.start) { st.side = hx < W / 2 ? 1 : -1; st.sideAt = st.start; }
+  if (st.sideAt !== st.start) { st.side = hx < W / 2 ? 1 : -1; st.sideAt = st.start; st.step = 0; }
   const base = H + M * .02, x = W / 2 + st.side * W * .26, art = ART.mahoraga, s = (H * 1.05) / art.img.height;
+  const now = performance.now() / 1000;
+  // 召喚：影子從地面噴發成一根柱子，魔虛羅從裡面升起
   inkPool(x, base - M * .02, W * .3, M * .1);
+  if (ms < 1100) {
+    const f = Math.min(1, ms / 500), fade = ms < 700 ? 1 : 1 - (ms - 700) / 400;
+    for (let k = 0; k < 26; k++) {
+      const yy = base - (k / 26) * H * 1.1 * f, ww = W * .09 * fade * (1 - k / 40) * (1 + .25 * Math.sin(now * 9 + k));
+      S.fillStyle = "#000"; S.beginPath(); S.arc(x + Math.sin(now * 5 + k * .7) * W * .02, yy, Math.max(1, ww), 0, TAU); S.fill();
+    }
+    shadowUsed = true;
+  }
+  if (ms < 120) { impact(.08, 16, 30); whiteout = 6; }
   const rise = (1 - ease) * art.img.height * s;
+  const breathe = 1 + .008 * Math.sin(now * 2.2);
+  const spread = Math.min(1, ms / 1800);                         // 翅膀從收起慢慢張開
+  const top = base + rise;
   D.save(); D.beginPath(); D.rect(0, 0, W, base - M * .03); D.clip();
-  D.translate(x, base + rise); D.scale(s, s); D.drawImage(art.img, -art.ox, -art.oy);
+  // 翅膀：左右各自以翼根為軸拍動
+  for (const side of [-1, 1]) {
+    const ang = side * (-(1 - spread) * .55 + Math.sin(now * 2.4) * .05);
+    const rx = x + side * art.wingRoot * s, ry = top - 1000 * s;
+    D.save();
+    D.beginPath(); side < 0 ? D.rect(0, 0, x, H) : D.rect(x, 0, W - x, H); D.clip();
+    D.translate(rx, ry); D.rotate(ang); D.translate(-rx, -ry);
+    D.translate(x, top); D.scale(s, s); D.drawImage(art.wings, -art.ox, -art.oy);
+    D.restore();
+  }
+  D.translate(x, top); D.scale(s, s * breathe); D.drawImage(art.img, -art.ox, -art.oy);
   D.restore();
-  // 邊緣光
-  glow(L, x, base + rise + art.headY * s, 260 * s, [[0, "rgba(255,255,255,.12)"], [1, "rgba(0,0,0,0)"]]);
+  // 邊緣光（藍白色，讓他在暗處浮出來）
+  L.save(); L.globalAlpha = .55; L.beginPath(); L.rect(0, 0, W, base - M * .03); L.clip();
+  L.translate(x, top); L.scale(s, s * breathe);
+  L.filter = "drop-shadow(0 0 6px rgba(150,180,255,1))";
+  L.drawImage(art.rim, -art.ox, -art.oy);
+  L.filter = "none"; L.restore();
+  glow(L, x, top + art.headY * s, 260 * s, [[0, "rgba(255,255,255,.1)"], [1, "rgba(0,0,0,0)"]]);
   // 法輪：每 1.6 秒轉一格（適應）
   const step = Math.floor(ms / 1600), frac = Math.min(1, (ms % 1600) / 250);
   const rot = (step + (1 - Math.pow(1 - frac, 3))) * TAU / 8;
   const wr = ART.wheel, ws = 150 * s / wr.r;
-  const wy = base + rise + art.wheelY * s;
+  const wy = top + art.wheelY * s;
   if (ms > 900) {
     D.save(); D.translate(x, wy); D.rotate(rot); D.scale(ws, ws); D.drawImage(wr.img, -wr.size / 2, -wr.size / 2); D.restore();
     glow(L, x, wy, M * .3, [[0, "rgba(255,230,160,.25)"], [1, "rgba(0,0,0,0)"]]);
-    if (frac < .2 && step > 0) { ring(x, wy, "#fe9", 14, 4); shake = Math.max(shake, 10); }
+    if (step > 0 && step !== st.step) {                          // 轉一格的瞬間：金色閃光
+      st.step = step;
+      ring(x, wy, "#fe9", 16, 5); ring(x, wy, "#fff", 10, 2); impact(.03, 6, 10);
+      for (let k = 0; k < 30; k++) { const an = rnd(0, TAU), v = rnd(4, 14); spawn({ x: x + Math.cos(an) * 150 * s, y: wy + Math.sin(an) * 150 * s, vx: Math.cos(an) * v, vy: Math.sin(an) * v, color: Math.random() < .5 ? "#ffe9a0" : "#fff", w: 2, decay: .03 }); }
+    }
+    if (step > 0 && frac < 1) {
+      L.save(); L.globalAlpha = 1 - frac; L.fillStyle = "#ffe9a0"; L.font = `bold ${M * .045}px serif`; L.textAlign = "center";
+      L.fillText("適 應", x, wy + 190 * s); L.restore();
+    }
   }
-  if (ms < 120) { shake = 30; whiteout = 6; }
 }
 
 // ================= 粒子 / 衝擊波 / 斬擊 =================
@@ -977,27 +1175,68 @@ function updateFx() {
 }
 
 // ================= 合成 =================
+function applyWarps() {
+  if (!warps.length) return;
+  SN.clearRect(0, 0, W, H); SN.drawImage(cv, 0, 0);
+  for (const w of warps) {
+    const N = 10;
+    for (let i = 0; i < N; i++) {
+      const f = 1 - i / N, r = w.r * f, inner = 1 - f;            // inner：越靠中心越接近 1
+      const sc = 1 - w.k * inner * .85, rot = w.tw * inner * inner;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(w.x, w.y, r, 0, TAU); ctx.clip();
+      ctx.translate(w.x, w.y); ctx.rotate(rot); ctx.scale(1 / sc, 1 / sc); ctx.translate(-w.x, -w.y);
+      ctx.drawImage(snapC, 0, 0);
+      ctx.restore();
+    }
+  }
+  warps.length = 0;
+}
+function chromatic(a) {
+  // 拆成紅色與青色兩個通道，各往左右錯開，再加回去（a=0 時與原圖完全相同）
+  for (const [g, col] of [[SN, "#f00"], [S2, "#0ff"]]) {
+    g.globalCompositeOperation = "copy"; g.drawImage(cv, 0, 0);
+    g.globalCompositeOperation = "multiply"; g.fillStyle = col; g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = "source-over";
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = "copy"; ctx.drawImage(snapC, a, 0);
+  ctx.globalCompositeOperation = "lighter"; ctx.drawImage(snap2C, -a, 0);
+  ctx.restore();
+}
 function composite() {
   const sx = rnd(-shake, shake), sy = rnd(-shake, shake);
   shake *= .85;
   gDark += (grade.dark - gDark) * .15;
-  ctx.save(); ctx.translate(sx, sy);
+  ctx.save();
+  ctx.translate(W / 2 + sx, H / 2 + sy); ctx.scale(1 + punch, 1 + punch); ctx.translate(-W / 2, -H / 2);
+  punch *= .82;
   const c = cover();
   ctx.filter = `saturate(${grade.tint ? grade.sat : 1}) contrast(${1 + gDark * .4}) brightness(${1 - gDark * .45})${grade.invert ? " invert(1)" : ""}`;
   ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
   ctx.drawImage(video, c.ox, c.oy, c.vw * c.s, c.vh * c.s);
   ctx.restore(); ctx.filter = "none";
+  ctx.restore();
+  applyWarps();
+  ctx.save();
+  ctx.translate(W / 2 + sx, H / 2 + sy); ctx.scale(1 + punch, 1 + punch); ctx.translate(-W / 2, -H / 2);
   if (grade.tint) { ctx.globalCompositeOperation = "overlay"; ctx.fillStyle = grade.tint; ctx.fillRect(-60, -60, W + 120, H + 120); ctx.globalCompositeOperation = "source-over"; }
   const v = ctx.createRadialGradient(W / 2, H / 2, M * .3, W / 2, H / 2, Math.hypot(W, H) * .6);
   v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, `rgba(0,0,0,${.35 + gDark * .55})`);
   ctx.fillStyle = v; ctx.fillRect(-60, -60, W + 120, H + 120);
   ctx.drawImage(darkC, 0, 0);
+  // bloom 在半解析度算，省下大部分模糊的成本
+  B.clearRect(0, 0, bloomC.width, bloomC.height);
+  B.filter = "blur(12px)"; B.drawImage(lightC, 0, 0, bloomC.width, bloomC.height);
+  B.filter = "blur(3px)"; B.drawImage(lightC, 0, 0, bloomC.width, bloomC.height);
+  B.filter = "none";
   ctx.globalCompositeOperation = "lighter";
-  ctx.filter = "blur(24px)"; ctx.drawImage(lightC, 0, 0);
-  ctx.filter = "blur(6px)"; ctx.drawImage(lightC, 0, 0);
-  ctx.filter = "none"; ctx.drawImage(lightC, 0, 0);
+  ctx.drawImage(bloomC, 0, 0, W, H);
+  ctx.drawImage(lightC, 0, 0);
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
+  if (aberr > .8) chromatic(aberr);
+  aberr *= .8;
   if (whiteout > 0) { ctx.fillStyle = `rgba(255,245,255,${whiteout / 14})`; ctx.fillRect(0, 0, W, H); whiteout--; }
   ctx.globalAlpha = .06;
   for (let k = 0; k < 150; k++) { ctx.fillStyle = Math.random() < .5 ? "#fff" : "#000"; ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
@@ -1094,15 +1333,16 @@ function loop() {
   if (hands.length === 2 && !used.size) {
     const [A, B] = hands, close = dist(A.c, B.c) < M * .2;
     const both = p => A.pose === p && B.pose === p && A.held > 5 && B.held > 5;
-    if (both("peace")) { infiniteVoid(); say("領域展開・無量空處", "#cdf", "五條悟"); }
-    else if (both("horns")) { shrine(); say("領域展開・伏魔御廚子", "#f33", "兩面宿儺"); }
-    else if (both("shaka")) { chimeraGarden(); say("領域展開・嵌合暗翳庭", "#8af", "伏黑惠"); }
+    const hc = { x: (A.c.x + B.c.x) / 2, y: (A.c.y + B.c.y) / 2 };
+    if (both("peace")) { infiniteVoid(hc); say("領域展開・無量空處", "#cdf", "五條悟"); }
+    else if (both("horns")) { shrine(hc); say("領域展開・伏魔御廚子", "#f33", "兩面宿儺"); }
+    else if (both("shaka")) { chimeraGarden(hc); say("領域展開・嵌合暗翳庭", "#8af", "伏黑惠"); }
     else if (both("open") && dist(A.pts[4], B.pts[4]) < dist(A.pts[0], A.pts[9]) * 1.6 && dist(A.c, B.c) < dist(A.pts[0], A.pts[9]) * 3.2) { nue(A, B); say("十種影法術・鵺", "#9cf", "伏黑惠"); }
     else if (close && A.held > 5 && B.held > 5 && ((A.pose === "fist" && B.pose === "open") || (A.pose === "open" && B.pose === "fist"))) {
       mahoraga(A, B); say("八握劍異戒神將・魔虛羅", "#eed", "伏黑惠");
     }
     else if (close && A.speed < M * .05 && B.speed < M * .05 && both("fist")) {
-      piercingBlood(A, B); say("赤血操術・穿血", "#f33", "脹相");
+      say("赤血操術・" + piercingBlood(A, B), "#f33", "脹相");
     }
     // 兩手靠在一起、雙手術式還在確認中：先不出單手特效，避免畫面亂
     if (labels.length || dist(A.c, B.c) < M * .3) hands.forEach(h => used.add(h.key));
@@ -1133,9 +1373,12 @@ function loop() {
   }
 
   updateProjs();
-  if (projs.length && !labels.length) say(projs[0].type === "blue" ? "術式順轉「蒼」" : "術式反轉「赫」", projs[0].type === "blue" ? "#4cf" : "#f44", "五條悟");
+  const PROJ_NAME = { blue: ["術式順轉「蒼」", "#4cf", "五條悟"], red: ["術式反轉「赫」", "#f44", "五條悟"], fire: ["「開」", "#fa3", "兩面宿儺"] };
+  if (projs.length && !labels.length) say(...PROJ_NAME[projs[0].type]);
   updateFx();
   flushGoo();
+  for (const f of post) f();
+  post.length = 0;
   for (const w of wolfQueue) drawWolf(...w);
   wolfQueue.length = 0;
   composite();
