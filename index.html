@@ -54,7 +54,7 @@
 <div id="guide">
   <i>五條悟</i>（使用時自動戴上眼罩）<br>
   <b>手張開</b> 蒼　<b>伸食指</b> 赫　（<b>揮手</b> 發射）<br>
-  <b>單手手指半彎（抓球）</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>用力揮出</b> 發射<br>
+  <b>拇指和食指捏在一起</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>手指彈開或揮出</b> 發射<br>
   <b>雙手比 YA</b> 領域展開・無量空處<br>
   <i>虎杖悠仁</i><br>
   <b>握拳</b> 紅色咒力包覆拳頭　<b>快速出拳</b> 黑閃（雙手可同時）<br>
@@ -79,6 +79,8 @@
 
 <script type="module">
 import { HandLandmarker, FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+import { buildArt } from "./art.js";
+let ART = null;
 
 const video = document.getElementById("video");
 const cv = document.getElementById("main");
@@ -114,6 +116,7 @@ document.getElementById("btn").onclick = async () => {
     });
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
     await video.play();
+    ART = buildArt();
     document.getElementById("start").remove();
     requestAnimationFrame(loop);
     // 臉部偵測（眼罩用）：背景載入，失敗也不影響手勢
@@ -149,6 +152,7 @@ function drawBlindfold() {
   const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   const eL = mid(f[33], f[133]), eR = mid(f[362], f[263]);
   let ux = eR.x - eL.x, uy = eR.y - eL.y; const n = Math.hypot(ux, uy) || 1; ux /= n; uy /= n;
+  if (ux < 0) { ux = -ux; uy = -uy; }                      // 鏡像後左右眼會對調，統一成由左到右
   const nx = -uy, ny = ux;                                   // 垂直於眼睛連線
   const c = mid(eL, eR);
   const half = Math.max(dist(c, f[127]), dist(c, f[356])) * 1.08;
@@ -157,22 +161,41 @@ function drawBlindfold() {
   const bulge = half * .12;                                  // 頭是圓的，布帶微微彎曲
   const P = (s, o) => ({ x: c.x + ux * s * half + nx * o, y: c.y + uy * s * half + ny * o });
   ctx.save(); ctx.globalAlpha = blind.alpha;
-  ctx.beginPath();
-  let a = P(-1, -h + bulge * .6), b = P(1, -h + bulge * .6);
-  ctx.moveTo(a.x, a.y);
-  let q = P(0, -h - bulge); ctx.quadraticCurveTo(q.x, q.y, b.x, b.y);
-  a = P(1, lo + bulge * .4); ctx.lineTo(a.x, a.y);
-  q = P(0, lo - bulge * .4); b = P(-1, lo + bulge * .4); ctx.quadraticCurveTo(q.x, q.y, b.x, b.y);
-  ctx.closePath();
-  const g = ctx.createLinearGradient(P(0, -h).x, P(0, -h).y, P(0, lo).x, P(0, lo).y);
-  g.addColorStop(0, "#1c1c22"); g.addColorStop(.35, "#08080a"); g.addColorStop(.75, "#0e0e12"); g.addColorStop(1, "#000");
-  ctx.fillStyle = g; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = h * .4; ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.clip();
-  ctx.strokeStyle = "rgba(255,255,255,.06)"; ctx.lineWidth = Math.max(1, h * .05);   // 布的皺褶
-  for (const k of [-.55, -.15, .3, .7]) {
-    const s0 = P(-1, k * h), s1 = P(1, k * h * .8), qq = P(0, k * h - bulge * .5);
+  const band = new Path2D();
+  {
+    let a = P(-1, -h + bulge * .6), b = P(1, -h + bulge * .6), q = P(0, -h - bulge);
+    band.moveTo(a.x, a.y); band.quadraticCurveTo(q.x, q.y, b.x, b.y);
+    a = P(1, lo + bulge * .4); band.lineTo(a.x, a.y);
+    q = P(0, lo - bulge * .4); b = P(-1, lo + bulge * .4); band.quadraticCurveTo(q.x, q.y, b.x, b.y);
+    band.closePath();
+  }
+  // 白髮（在眼罩上方，跟著頭轉）
+  if (ART) {
+    const hr = ART.hair, top = P(0, -h - bulge * .6), sc = half * 2.25 / hr.w;
+    ctx.save(); ctx.translate(top.x, top.y); ctx.rotate(Math.atan2(uy, ux)); ctx.scale(sc, sc);
+    ctx.drawImage(hr.img, -hr.ox, -hr.oy - 10);
+    ctx.restore();
+  }
+  // 布料：織紋 + 立體明暗（上緣受光、兩側轉暗）
+  ctx.shadowColor = "rgba(0,0,0,.7)"; ctx.shadowBlur = h * .5; ctx.shadowOffsetY = h * .1;
+  ctx.fillStyle = ART ? ctx.createPattern(ART.cloth, "repeat") : "#0b0b0f";
+  ctx.fill(band);
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.clip(band);
+  let g = ctx.createLinearGradient(P(0, -h).x, P(0, -h).y, P(0, lo).x, P(0, lo).y);
+  g.addColorStop(0, "rgba(255,255,255,.16)"); g.addColorStop(.18, "rgba(255,255,255,.04)"); g.addColorStop(.6, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.6)");
+  ctx.fillStyle = g; ctx.fill(band);
+  const l = P(-1, 0), r = P(1, 0);
+  g = ctx.createLinearGradient(l.x, l.y, r.x, r.y);
+  g.addColorStop(0, "rgba(0,0,0,.85)"); g.addColorStop(.25, "rgba(0,0,0,0)"); g.addColorStop(.75, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.85)");
+  ctx.fillStyle = g; ctx.fill(band);
+  ctx.lineCap = "round";                                     // 布的皺褶：暗線 + 旁邊一條細高光
+  for (const k of [-.5, -.1, .35, .72]) {
+    const s0 = P(-1, k * h), s1 = P(1, k * h * .8), qq = P(.1, k * h - bulge * .5);
+    ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = Math.max(1, h * .07);
     ctx.beginPath(); ctx.moveTo(s0.x, s0.y); ctx.quadraticCurveTo(qq.x, qq.y, s1.x, s1.y); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = Math.max(1, h * .03);
+    ctx.beginPath(); ctx.moveTo(s0.x, s0.y - h * .06); ctx.quadraticCurveTo(qq.x, qq.y - h * .06, s1.x, s1.y - h * .06); ctx.stroke();
   }
   ctx.restore();
 }
@@ -203,11 +226,9 @@ function fingerState(lm, mcp, pip, tip) {
 function pose(lm) {
   const palm = dist(lm[0], lm[9]) || 1;
   const f = [fingerState(lm, 5, 6, 8), fingerState(lm, 9, 10, 12), fingerState(lm, 13, 14, 16), fingerState(lm, 17, 18, 20)];
-  // 抓球手勢（茈）：四指都半彎，但指尖沒有收回掌心
-  const tips = [8, 12, 16, 20], pips = [6, 10, 14, 18], mcps = [5, 9, 13, 17];
-  const bent = tips.map((tp, k) => bend(lm, mcps[k], pips[k], pips[k], tp));
-  const tipFar = tips.every(tp => dist(lm[tp], lm[0]) > palm * 1.15);
-  if (tipFar && bent.filter(c => c < .8).length >= 3 && bent.every(c => c > -.5)) return "claw";
+  // 茈的手勢：拇指和食指捏在一起（準備彈指），其餘手指收起
+  const others = [[9, 10, 12], [13, 14, 16], [17, 18, 20]].map(([a, b, c]) => bend(lm, a, b, b, c));
+  if (dist(lm[4], lm[8]) < palm * .38 && dist(lm[8], lm[0]) > palm * 1.05 && others.filter(c => c < .8).length >= 2) return "pinch";
   if (f.includes(-1)) return "none";
   const [i, m, r, p] = f.map(Boolean);
   const thumbStraight = bend(lm, 2, 3, 3, 4) > .8;
@@ -223,7 +244,7 @@ function pose(lm) {
   if (n === 0 && !tOut) return "fist";
   return "none";
 }
-const POSE_NAME = { open: "張開", point: "食指", peace: "YA", horns: "食指+小指", shaka: "拇指+小指", thumb: "拇指", fist: "握拳", claw: "抓球", none: "—" };
+const POSE_NAME = { open: "張開", point: "食指", peace: "YA", horns: "食指+小指", shaka: "拇指+小指", thumb: "拇指", fist: "握拳", pinch: "捏指", none: "—" };
 
 // ================= 工具 =================
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -424,7 +445,7 @@ function purpleCharge(c) {
   setGrade("rgba(120,40,255,.4)", .6, .45);
   P.charge = Math.min(1, P.charge + .022);
   const e = 1 - Math.pow(1 - P.charge, 2.2);               // 越靠近越快
-  const spread = M * .3 * (1 - e), bob = Math.sin(t * .15) * M * .015 * (1 - e);
+  const spread = M * .26 * (1 - e), bob = Math.sin(t * .15) * M * .015 * (1 - e);
   const bp = { x: c.x - spread, y: c.y - bob }, rp = { x: c.x + spread, y: c.y + bob };
   const d = dist(bp, rp), mid = c;
   blueOrb(bp, .8); redOrb(rp, .8);
@@ -502,7 +523,7 @@ function purpleFire() {
   P.fire--;
   if (P.fire <= 0) { P.state = "idle"; P.cool = 40; }
 }
-function updatePurple(holder) {
+function updatePurple(holder, released = false, dir = null) {
   // holder：目前握著紫球的位置（兩手中點或單手）
   if (P.state === "fire") { purpleFire(); return true; }
   if (P.state !== "fused") return false;
@@ -512,8 +533,8 @@ function updatePurple(holder) {
   P.pos = { x: P.pos.x + (holder.x - P.pos.x) * .3, y: P.pos.y + (holder.y - P.pos.y) * .3 };
   const v = { x: holder.x - last.x, y: holder.y - last.y }, sp = Math.hypot(v.x, v.y);
   purpleOrb(P.pos);
-  if (sp > M * .045) {
-    P.state = "fire"; P.fire = 45; P.origin = P.pos; P.dir = { x: v.x / sp, y: v.y / sp };
+  if (sp > M * .045 || (released && dir)) {
+    P.state = "fire"; P.fire = 45; P.origin = P.pos; P.dir = sp > M * .045 ? { x: v.x / sp, y: v.y / sp } : dir;
     whiteout = 14; shake = 40; ring(P.pos.x, P.pos.y, "#fff", 40, 10); ring(P.pos.x, P.pos.y, "#c8f", 28, 6);
   }
   return true;
@@ -687,35 +708,19 @@ function inkPool(x, y, rx, ry = rx * .28) {
   L.strokeStyle = `rgba(90,150,255,${.35 * (1 - rp)})`; L.lineWidth = 2;
   L.beginPath(); L.ellipse(x, y, rx * (.9 + rp * .5), ry * (.9 + rp * .5), 0, 0, TAU); L.stroke();
 }
-function wolfPath(g) {
-  g.beginPath();
-  g.moveTo(-55, 0); g.bezierCurveTo(-62, -50, -52, -90, -30, -112);
-  g.lineTo(-36, -152); g.lineTo(-12, -122); g.lineTo(-2, -152); g.lineTo(6, -118);
-  g.bezierCurveTo(26, -118, 46, -108, 76, -95);
-  g.lineTo(90, -88); g.lineTo(86, -79);
-  g.bezierCurveTo(66, -74, 52, -72, 40, -71);
-  g.lineTo(60, -62); g.bezierCurveTo(40, -54, 20, -54, 10, -50);
-  g.bezierCurveTo(4, -30, 10, -10, 16, 0); g.closePath();
-}
 const wolfQueue = [];
 function wolf(...args) { wolfQueue.push(args); }
 function drawWolf(x, y, s, white, dir, emerge) {
-  const rise = (1 - emerge) * 170, breathe = Math.sin(t * .12 + x) * 3;
-  for (const g of [D, L]) { g.save(); g.beginPath(); g.rect(x - 200 * s, y - 400 * s, 400 * s, 400 * s); g.clip(); g.translate(x, y + rise * s + breathe); g.scale(s * dir, s); }
-  if (white) {
-    wolfPath(D); D.fillStyle = "#000"; D.fill();
-    wolfPath(L); L.fillStyle = "rgba(200,215,240,.6)"; L.fill();
-    L.strokeStyle = "rgba(120,180,255,.9)"; L.lineWidth = 3; L.stroke();
-  } else {
-    wolfPath(D); D.fillStyle = "#020208"; D.fill();
-    wolfPath(L); L.strokeStyle = "rgba(80,150,255,.95)"; L.lineWidth = 4; L.stroke();
-  }
-  L.fillStyle = "#fff";                                         // 獠牙
-  L.beginPath(); L.moveTo(44, -71); L.lineTo(48, -62); L.lineTo(52, -71); L.fill();
-  for (const g of [D, L]) g.restore();
-  if (emerge > .5) {
-    const ex = x + 30 * s * dir, ey = y + (-105 + rise) * s + breathe;
-    glow(L, ex, ey, 14 * s * 2, [[0, "#fff"], [.25, white ? "#9df" : "#f44"], [1, "rgba(0,0,0,0)"]]);
+  const a = white ? ART.wolfWhite : ART.wolfBlack;
+  const sc = s / a.unit, rise = (1 - emerge) * 170 * s, breathe = Math.sin(performance.now() / 400 + x) * 3 * s;
+  D.save();
+  D.beginPath(); D.rect(x - 300 * s, y - 400 * s, 600 * s, 400 * s); D.clip();       // 只畫影子表面以上
+  D.translate(x, y + rise + breathe); D.scale(sc * dir, sc);
+  D.drawImage(a.img, -a.ox, -a.oy);
+  D.restore();
+  if (emerge > .6) {
+    const ex = x + a.eye[0] * sc * dir, ey = y + rise + breathe + a.eye[1] * sc;
+    glow(L, ex, ey, 22 * s, [[0, "rgba(255,255,255,.9)"], [.3, white ? "rgba(120,200,255,.8)" : "rgba(255,60,50,.8)"], [1, "rgba(0,0,0,0)"]]);
   }
 }
 const shadowState = { dogs: 0, garden: 0, lastDogs: -1e9, lastGarden: -1e9 };
@@ -821,102 +826,50 @@ function summonTime(id) {                       // 回傳召喚後經過的毫�
   st.last = now;
   return now - st.start;
 }
-function nuePath(g, flap) {
-  // 以身體中心為原點，單位約 100；flap 是翅膀角度
-  g.beginPath();
-  g.moveTo(0, -38);
-  for (const side of [1, -1]) {
-    const wy = -10 - flap * 60;
-    g.moveTo(side * 12, -20);
-    g.bezierCurveTo(side * 60, -30 - flap * 30, side * 120, wy - 30, side * 190, wy - 20);
-    // 羽毛的鋸齒邊
-    const feathers = 6;
-    for (let k = 0; k <= feathers; k++) {
-      const f = k / feathers, x = side * (190 - f * 170), y = wy - 20 + f * 45 + 18 + (k % 2 ? 14 : 0);
-      g.lineTo(x, y + f * 10);
-    }
-    g.lineTo(side * 10, 25);
-  }
-  g.closePath();
-}
 function nue(a, b) {
   const ms = summonTime("nue"), e = Math.min(1, ms / 700), ease = 1 - Math.pow(1 - e, 3);
   setGrade("rgba(30,70,200,.5)", .75, .3);
-  const c = { x: (a.c.x + b.c.x) / 2, y: (a.c.y + b.c.y) / 2 - M * (.1 + .12 * ease) };
-  const s = M / 520 * (.4 + .6 * ease), flap = Math.sin(performance.now() / 140);
+  const c = { x: (a.c.x + b.c.x) / 2, y: (a.c.y + b.c.y) / 2 - M * (.12 + .12 * ease) };
+  const s = M / 900 * (.4 + .6 * ease), flap = Math.sin(performance.now() / 140);
   inkPool((a.c.x + b.c.x) / 2, (a.c.y + b.c.y) / 2 + M * .05, M * .2);
-  // 翅膀與身體（黑色本體 + 藍色輪廓光）
-  for (const g of [D, L]) { g.save(); g.translate(c.x, c.y); g.scale(s, s); }
-  nuePath(D, flap); D.fillStyle = "#04040a"; D.fill();
-  nuePath(L, flap); L.strokeStyle = "rgba(110,170,255,.9)"; L.lineWidth = 3 / s * .6; L.stroke();
-  // 面具般的白色頭部
-  D.fillStyle = "#04040a"; D.beginPath(); D.ellipse(0, -10, 26, 34, 0, 0, TAU); D.fill();
-  L.fillStyle = "rgba(225,230,240,.85)"; L.beginPath();
-  L.moveTo(-22, -40); L.quadraticCurveTo(0, -55, 22, -40); L.lineTo(16, -5); L.quadraticCurveTo(0, 8, -16, -5); L.closePath(); L.fill();
-  for (const g of [D, L]) g.restore();
-  D.fillStyle = "#000";
-  for (const sx of [-1, 1]) { D.beginPath(); D.ellipse(c.x + sx * 9 * s, c.y - 28 * s, 5 * s, 3 * s, sx * .4, 0, TAU); D.fill(); }
-  for (const sx of [-1, 1]) glow(L, c.x + sx * 9 * s, c.y - 28 * s, 10 * s, [[0, "#fff"], [.4, "#8cf"], [1, "rgba(0,0,0,0)"]]);
-  // 雷電
-  for (let k = 0; k < 5; k++) {
-    const side = k % 2 ? 1 : -1, wx = c.x + side * rnd(60, 180) * s, wy = c.y + (-30 - flap * 60) * s;
+  const wing = ART.nueWing, body = ART.nueBody;
+  // 兩片翅膀以肩膀為軸拍動
+  for (const side of [1, -1]) {
+    D.save(); D.translate(c.x + side * 60 * s, c.y - 10 * s); D.scale(side * s, s); D.rotate(-.15 + flap * .35);
+    D.drawImage(wing.img, -wing.ox, -wing.oy);
+    D.restore();
+  }
+  D.save(); D.translate(c.x, c.y); D.scale(s, s); D.drawImage(body.img, -body.ox, -body.oy); D.restore();
+  for (const [ex, ey] of body.eyes) glow(L, c.x + (ex - body.ox) * s, c.y + (ey - body.oy) * s, 26 * s, [[0, "#fff"], [.35, "#8cf"], [1, "rgba(0,0,0,0)"]]);
+  // 雷電：從翅膀與身體竄出
+  for (let k = 0; k < 6; k++) {
+    const side = k % 2 ? 1 : -1, wx = c.x + side * rnd(150, 520) * s, wy = c.y + (-150 - flap * 120) * s * rnd(.3, 1);
     bolt(L, wx, wy, M * rnd(.08, .2), "rgba(170,210,255,.95)", rnd(1.5, 3), 7, rnd(0, TAU), 1.1);
   }
-  if (Math.random() < .12) { whiteout = 3; shake = 8; bolt(L, c.x, c.y, M * .5, "#fff", 4, 10, Math.PI / 2, .5); }
-  glow(L, c.x, c.y, M * .2 * s * 3, [[0, "rgba(120,170,255,.35)"], [1, "rgba(0,0,0,0)"]]);
+  if (Math.random() < .1) { whiteout = 3; shake = 8; bolt(L, c.x, c.y, M * .55, "#fff", 4, 10, Math.PI / 2, .5); }
+  glow(L, c.x, c.y, M * .35 * ease, [[0, "rgba(120,170,255,.35)"], [1, "rgba(0,0,0,0)"]]);
 }
 
-function wheel(x, y, r, rot) {
-  L.save(); L.translate(x, y); L.rotate(rot);
-  L.strokeStyle = "rgba(235,215,160,.95)"; L.fillStyle = "rgba(235,215,160,.95)";
-  L.lineWidth = r * .07; L.beginPath(); L.arc(0, 0, r * .62, 0, TAU); L.stroke();
-  L.lineWidth = r * .04; L.beginPath(); L.arc(0, 0, r * .2, 0, TAU); L.stroke();
-  for (let k = 0; k < 8; k++) {
-    L.save(); L.rotate(k / 8 * TAU);
-    L.lineWidth = r * .05; L.beginPath(); L.moveTo(r * .2, 0); L.lineTo(r * .95, 0); L.stroke();
-    L.beginPath(); L.ellipse(r * .98, 0, r * .07, r * .13, 0, 0, TAU); L.fill();   // 把手
-    L.restore();
-  }
-  L.restore();
-}
-function mahoragaPath(g) {
-  // 原點：底部中央，高度約 600
-  g.beginPath();
-  g.moveTo(-260, 0);
-  g.bezierCurveTo(-270, -180, -250, -300, -200, -370);            // 左臂外側
-  g.bezierCurveTo(-180, -420, -120, -440, -70, -445);             // 左肩
-  g.lineTo(-45, -470);                                            // 脖子
-  g.bezierCurveTo(-60, -540, -40, -600, 0, -605);                 // 頭左
-  g.bezierCurveTo(40, -600, 60, -540, 45, -470);                  // 頭右
-  g.lineTo(70, -445);
-  g.bezierCurveTo(120, -440, 180, -420, 200, -370);
-  g.bezierCurveTo(250, -300, 270, -180, 260, 0);
-  g.closePath();
-}
 function mahoraga(a, b) {
   const ms = summonTime("maho"), e = Math.min(1, ms / 1500), ease = 1 - Math.pow(1 - e, 3);
   setGrade("rgba(40,30,70,.6)", .9, .15);
-  const base = H + M * .02, s = M / 920, x = W / 2;
-  // 影子湧出
+  const base = H + M * .02, x = W / 2, art = ART.mahoraga, s = (H * .78) / art.img.height;
   inkPool(x, base - M * .02, W * .45, M * .12);
-  const rise = (1 - ease) * 640;
-  for (const g of [D, L]) { g.save(); g.beginPath(); g.rect(0, 0, W, base - M * .03); g.clip(); g.translate(x, base + rise * s); g.scale(s, s); }
-  mahoragaPath(D); D.fillStyle = "rgba(8,8,12,.55)"; D.fill();
-  mahoragaPath(L); L.fillStyle = "rgba(210,210,225,.08)"; L.fill();
-  L.strokeStyle = "rgba(230,230,245,.9)"; L.lineWidth = 4; L.stroke();
-  // 頭上的翅膀
-  for (const sx of [-1, 1]) {
-    L.beginPath(); L.moveTo(sx * 40, -560); L.quadraticCurveTo(sx * 120, -620, sx * 150, -560); L.quadraticCurveTo(sx * 100, -575, sx * 45, -530); L.closePath();
-    L.fillStyle = "rgba(230,230,245,.5)"; L.fill(); L.stroke();
-  }
-  for (const g of [D, L]) g.restore();
+  const rise = (1 - ease) * art.img.height * s;
+  D.save(); D.beginPath(); D.rect(0, 0, W, base - M * .03); D.clip();
+  D.globalAlpha = .9;
+  D.translate(x, base + rise); D.scale(s, s); D.drawImage(art.img, -art.ox, -art.oy);
+  D.restore();
+  // 邊緣光
+  glow(L, x, base + rise + art.headY * s, 260 * s, [[0, "rgba(255,255,255,.12)"], [1, "rgba(0,0,0,0)"]]);
   // 法輪：每 1.6 秒轉一格（適應）
   const step = Math.floor(ms / 1600), frac = Math.min(1, (ms % 1600) / 250);
   const rot = (step + (1 - Math.pow(1 - frac, 3))) * TAU / 8;
-  const wy = base + (rise - 700) * s;
+  const wr = ART.wheel, ws = M * .2 / wr.r;
+  const wy = base + rise + (art.headY - 190) * s - M * .12;
   if (ms > 900) {
-    wheel(x, wy, 120 * s, rot);
-    glow(L, x, wy, 200 * s, [[0, "rgba(255,240,200,.3)"], [1, "rgba(0,0,0,0)"]]);
+    D.save(); D.translate(x, wy); D.rotate(rot); D.scale(ws, ws); D.drawImage(wr.img, -wr.size / 2, -wr.size / 2); D.restore();
+    glow(L, x, wy, M * .3, [[0, "rgba(255,230,160,.25)"], [1, "rgba(0,0,0,0)"]]);
     if (frac < .2 && step > 0) { ring(x, wy, "#fe9", 14, 4); shake = Math.max(shake, 10); }
   }
   if (ms < 120) { shake = 30; whiteout = 6; }
@@ -1056,16 +1009,20 @@ function loop() {
 
   // --- 茈 ---
   P.cool--;
-  const clawH = hands.find(h => h.key === P.key && h.pose === "claw") || hands.find(h => h.pose === "claw");
+  const pinchPt = h => ({ x: (h.pts[4].x + h.pts[8].x) / 2, y: (h.pts[4].y + h.pts[8].y) / 2 });
+  const clawH = hands.find(h => h.key === P.key && h.pose === "pinch") || hands.find(h => h.pose === "pinch");
   if (P.state === "fused" || P.state === "fire") {
     const hh = hands.find(h => h.key === P.key);
-    updatePurple(hh?.c);
+    const released = hh && hh.pose !== "pinch" && hh.pose !== "none";
+    let dir = null;
+    if (hh) { const dx = hh.pts[8].x - hh.pts[5].x, dy = hh.pts[8].y - hh.pts[5].y, n = Math.hypot(dx, dy) || 1; dir = { x: dx / n, y: dy / n }; }
+    updatePurple(hh && pinchPt(hh), released, dir);
     if (hh) used.add(hh.key);
     say("虛式「茈」", "#c8f", "五條悟");
   } else if (clawH && P.cool <= 0) {
     if (P.state !== "charge" || P.key !== clawH.key) { P.charge = 0; P.key = clawH.key; }
     P.state = "charge";
-    purpleCharge(clawH.c);
+    purpleCharge(pinchPt(clawH));
     used.add(clawH.key);
     say(P.charge < .6 ? "術式順轉「蒼」・術式反轉「赫」" : "虛式「茈」", "#c8f", "五條悟");
   } else if (P.state === "charge") P.state = "idle";
