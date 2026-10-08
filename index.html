@@ -52,7 +52,7 @@
 <div id="guide">
   <i>五條悟</i><br>
   <b>手張開</b> 蒼　<b>伸食指</b> 赫<br>
-  <b>一手蒼 + 一手赫，兩手靠攏</b> 虛式「茈」→ <b>用力揮出</b> 發射<br>
+  <b>單手手指半彎（抓球）</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>用力揮出</b> 發射<br>
   <b>雙手比 YA</b> 領域展開・無量空處<br>
   <i>虎杖悠仁</i><br>
   <b>握拳</b> 紅色咒力包覆拳頭　<b>快速出拳</b> 黑閃（雙手可同時）<br>
@@ -142,6 +142,11 @@ function fingerState(lm, mcp, pip, tip) {
 function pose(lm) {
   const palm = dist(lm[0], lm[9]) || 1;
   const f = [fingerState(lm, 5, 6, 8), fingerState(lm, 9, 10, 12), fingerState(lm, 13, 14, 16), fingerState(lm, 17, 18, 20)];
+  // 抓球手勢（茈）：四指都半彎，但指尖沒有收回掌心
+  const tips = [8, 12, 16, 20], pips = [6, 10, 14, 18], mcps = [5, 9, 13, 17];
+  const bent = tips.map((tp, k) => bend(lm, mcps[k], pips[k], pips[k], tp));
+  const tipFar = tips.every(tp => dist(lm[tp], lm[0]) > palm * 1.15);
+  if (tipFar && bent.filter(c => c < .8).length >= 3 && bent.every(c => c > -.5)) return "claw";
   if (f.includes(-1)) return "none";
   const [i, m, r, p] = f.map(Boolean);
   const thumbStraight = bend(lm, 2, 3, 3, 4) > .8;
@@ -157,7 +162,7 @@ function pose(lm) {
   if (n === 0 && !tOut) return "fist";
   return "none";
 }
-const POSE_NAME = { open: "張開", point: "食指", peace: "YA", horns: "食指+小指", shaka: "拇指+小指", thumb: "拇指", fist: "握拳", none: "—" };
+const POSE_NAME = { open: "張開", point: "食指", peace: "YA", horns: "食指+小指", shaka: "拇指+小指", thumb: "拇指", fist: "握拳", claw: "抓球", none: "—" };
 
 // ================= 工具 =================
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -302,11 +307,15 @@ function red(c) {
   shake = Math.max(shake, 3);
 }
 
-// 茈：狀態機  idle → charge（兩手蒼赫靠近）→ fused（握著紫球）→ fire（揮出）
-const P = { state: "idle", cool: 0, charge: 0, pos: null, prev: null, lost: 0, fire: 0, dir: { x: 1, y: 0 }, origin: null };
-function purpleCharge(bp, rp, closeD) {
+// 茈：狀態機  idle → charge（抓球手勢，蒼赫從左右往中間靠攏）→ fused（手中紫球）→ fire（揮出）
+const P = { state: "idle", key: null, cool: 0, charge: 0, pos: null, prev: null, lost: 0, fire: 0, dir: { x: 1, y: 0 }, origin: null };
+function purpleCharge(c) {
   setGrade("rgba(120,40,255,.4)", .6, .45);
-  const d = dist(bp, rp), mid = { x: (bp.x + rp.x) / 2, y: (bp.y + rp.y) / 2 };
+  P.charge = Math.min(1, P.charge + .022);
+  const e = 1 - Math.pow(1 - P.charge, 2.2);               // 越靠近越快
+  const spread = M * .3 * (1 - e), bob = Math.sin(t * .15) * M * .015 * (1 - e);
+  const bp = { x: c.x - spread, y: c.y - bob }, rp = { x: c.x + spread, y: c.y + bob };
+  const d = dist(bp, rp), mid = c;
   blueOrb(bp, .8); redOrb(rp, .8);
   // 兩股能量互相纏繞
   for (let s = 0; s < 2; s++) {
@@ -320,9 +329,8 @@ function purpleCharge(bp, rp, closeD) {
     }
     L.stroke();
   }
-  P.charge = Math.min(1, P.charge + .02);
   glow(L, mid.x, mid.y, M * .05 * (1 + P.charge), [[0, "#fff"], [.4, "rgba(190,90,255,.8)"], [1, "rgba(80,0,160,0)"]]);
-  if (closeD < M * .22) { P.state = "fused"; P.pos = mid; P.prev = null; whiteout = 8; shake = 20; ring(mid.x, mid.y, "#e9f", 30, 8); ring(mid.x, mid.y, "#fff", 22, 3); }
+  if (P.charge >= 1) { P.state = "fused"; P.pos = mid; P.prev = null; whiteout = 8; shake = 20; ring(mid.x, mid.y, "#e9f", 30, 8); ring(mid.x, mid.y, "#fff", 22, 3); }
 }
 function purpleOrb(c, s = 1) {
   setGrade("rgba(140,40,255,.5)", .7, .35);
@@ -784,17 +792,19 @@ function loop() {
   }
 
   // --- 茈 ---
-  const opens = hands.filter(h => h.pose === "open"), points = hands.filter(h => h.pose === "point");
+  P.cool--;
+  const clawH = hands.find(h => h.key === P.key && h.pose === "claw") || hands.find(h => h.pose === "claw");
   if (P.state === "fused" || P.state === "fire") {
-    const holder = hands.length === 2 ? { x: (hands[0].c.x + hands[1].c.x) / 2, y: (hands[0].c.y + hands[1].c.y) / 2 } : hands[0]?.c;
-    updatePurple(holder);
-    hands.forEach(h => used.add(h.key));
-    say(P.state === "fire" ? "虛式「茈」" : "虛式「茈」", "#c8f", "五條悟");
-  } else if (hands.length === 2 && opens.length === 1 && points.length === 1 && --P.cool <= 0) {
-    P.charge = P.state === "charge" ? P.charge : 0; P.state = "charge";
-    purpleCharge(opens[0].c, points[0].pts[8], dist(opens[0].c, points[0].c));
-    hands.forEach(h => used.add(h.key));
-    say("術式順轉「蒼」・術式反轉「赫」", "#c8f", "五條悟");
+    const hh = hands.find(h => h.key === P.key);
+    updatePurple(hh?.c);
+    if (hh) used.add(hh.key);
+    say("虛式「茈」", "#c8f", "五條悟");
+  } else if (clawH && P.cool <= 0) {
+    if (P.state !== "charge" || P.key !== clawH.key) { P.charge = 0; P.key = clawH.key; }
+    P.state = "charge";
+    purpleCharge(clawH.c);
+    used.add(clawH.key);
+    say(P.charge < .6 ? "術式順轉「蒼」・術式反轉「赫」" : "虛式「茈」", "#c8f", "五條悟");
   } else if (P.state === "charge") P.state = "idle";
 
   // --- 雙手組合 ---
