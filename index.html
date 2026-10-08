@@ -193,6 +193,7 @@ document.getElementById("btn").onclick = async () => {
     ART = buildArt();
     document.getElementById("start").remove();
     document.body.classList.add("running");
+    initBgs();
     requestAnimationFrame(loop);
     // 臉部偵測（眼罩用）：背景載入，失敗也不影響手勢
     FaceLandmarker.createFromOptions(fileset, {
@@ -342,10 +343,28 @@ function addBg(img, name, slot = null) {
   bgsEl.appendChild(el);
   return entry;
 }
-function initBgs() {
-  if (bgList.length) return;
+// ===== 背景照片的接口：把圖片照這些檔名放進 GitHub 的 backgrounds/ 資料夾就會自動出現 =====
+// 沒放的檔案會自動略過。slot 是預設把人放進去的格子（以圖片寬高的比例表示的多邊形）
+const BG_FILES = [
+  { file: "backgrounds/keyart.jpg", name: "主視覺", slot: KEYART_SLOT },   // 預設放在夏油傑下面的黃色空格
+  { file: "backgrounds/team.jpg", name: "全員" },
+  { file: "backgrounds/school.jpg", name: "咒術高專" },
+  { file: "backgrounds/bg4.jpg", name: "背景 4" },
+  { file: "backgrounds/bg5.jpg", name: "背景 5" },
+  { file: "backgrounds/bg6.jpg", name: "背景 6" },
+  { file: "backgrounds/bg7.jpg", name: "背景 7" },
+  { file: "backgrounds/bg8.jpg", name: "背景 8" },
+];
+const loadImg = src => new Promise((ok, no) => { const img = new Image(); img.onload = () => ok(img); img.onerror = no; img.src = src; });
+let bgsStarted = false;
+async function initBgs() {
+  if (bgsStarted) return;
+  bgsStarted = true;
+  const repo = await Promise.allSettled(BG_FILES.map(e => loadImg(e.file)));
+  repo.forEach((r, i) => { if (r.status === "fulfilled") addBg(r.value, BG_FILES[i].name, BG_FILES[i].slot || null); });
   addBg(genBg("void"), "無量空處"); addBg(genBg("shrine"), "伏魔御廚子"); addBg(genBg("garden"), "嵌合暗翳庭"); addBg(genBg("school"), "高專夜色");
   loadSavedBgs();
+  render();
 }
 // 上傳過的背景存在這台裝置的瀏覽器裡（IndexedDB），下次不用再傳
 function idb() {
@@ -378,7 +397,7 @@ function defaultPlace(bg, ow, oh) {
   return { x: ow / 2, y: oh, k: oh * .85 / bh };
 }
 function render() {
-  if (!subject) return;
+  if (!subject || !bgList.length) return;
   const bg = bgList[bgSel];
   const sc = Math.min(1, 2048 / Math.max(bg.img.width, bg.img.height));
   const ow = Math.round(bg.img.width * sc), oh = Math.round(bg.img.height * sc);
