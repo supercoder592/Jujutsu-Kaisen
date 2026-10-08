@@ -5,17 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>咒術回戰 術式特效</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: "Noto Sans TC", system-ui, sans-serif; color: #fff; }
-  #video { position: absolute; inset: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); }
-  #fx { position: absolute; inset: 0; width: 100vw; height: 100vh; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: "Noto Serif TC", "Noto Sans TC", serif; color: #fff; }
+  #video { display: none; }
+  #main { position: absolute; inset: 0; width: 100vw; height: 100vh; }
   #name {
-    position: absolute; left: 50%; top: 8%; transform: translateX(-50%);
-    font-size: 6vmin; font-weight: 900; letter-spacing: .3em; text-shadow: 0 0 20px currentColor;
-    opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap;
+    position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%) scale(1.1);
+    font-size: 6.5vmin; font-weight: 900; letter-spacing: .35em; white-space: nowrap;
+    text-shadow: 0 0 12px currentColor, 0 0 40px currentColor, 0 4px 0 #000;
+    opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none;
   }
+  #name.on { opacity: 1; transform: translateX(-50%) scale(1); }
+  .bar { position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height .4s; z-index: 2; }
+  #barT { top: 0; } #barB { bottom: 0; }
+  body.cine .bar { height: 7vh; }
   #guide {
-    position: absolute; left: 12px; bottom: 12px; background: rgba(0,0,0,.55); padding: 10px 14px;
-    border-radius: 10px; font-size: 13px; line-height: 1.7; backdrop-filter: blur(4px); display: none;
+    position: absolute; left: 12px; top: 12px; background: rgba(0,0,0,.6); padding: 10px 14px; z-index: 3;
+    border-radius: 10px; font-size: 13px; line-height: 1.7; display: none; font-family: system-ui, sans-serif;
   }
   #guide.show { display: block; }
   #guide b { color: #9cf; }
@@ -23,42 +28,44 @@
     position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
     background: radial-gradient(circle, #1a0b2e, #000); gap: 20px; z-index: 10;
   }
-  #start h1 { font-size: 7vmin; margin: 0; letter-spacing: .2em; }
+  #start h1 { font-size: 8vmin; margin: 0; letter-spacing: .3em; text-shadow: 0 0 30px #7a3cff; }
   #start button { font-size: 20px; padding: 12px 36px; border-radius: 30px; border: 0; background: #7a3cff; color: #fff; cursor: pointer; }
-  #status { font-size: 14px; opacity: .7; }
+  #status { font-size: 14px; opacity: .7; font-family: system-ui, sans-serif; }
 </style>
 </head>
 <body>
 <video id="video" autoplay playsinline muted></video>
-<canvas id="fx"></canvas>
+<canvas id="main"></canvas>
+<div class="bar" id="barT"></div><div class="bar" id="barB"></div>
 <div id="name"></div>
 <div id="guide">
-  <b>單手張開</b> → 五條悟「蒼」<br>
-  <b>單手食指</b> → 五條悟「赫」<br>
+  <b>單手張開</b> → 蒼　<b>單手食指</b> → 赫<br>
   <b>一手張開 + 一手食指</b> → 虛式「茈」<br>
-  <b>雙手比 YA</b> → 領域展開「無量空處」<br>
+  <b>雙手比 YA</b> → 無量空處<br>
   <b>握拳快速出拳</b> → 黑閃<br>
-  <b>拇指 + 小指</b> → 伏黑惠「玉犬」<br>
-  <b>食指 + 小指</b> → 夏油傑「咒靈操術」<br>
-  <b>雙手合掌</b> → 脹相「穿血」
+  <b>拇指 + 小指</b> → 玉犬　<b>食指 + 小指</b> → 咒靈操術<br>
+  <b>雙手合掌</b> → 穿血　　（按 H 隱藏）
 </div>
 <div id="start">
   <h1>咒術回戰</h1>
   <button id="btn">開啟鏡頭</button>
-  <div id="status">需要允許相機權限（建議用 Chrome）</div>
+  <div id="status">需要允許相機權限（建議用 Chrome）・按 H 看手勢</div>
 </div>
 
 <script type="module">
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
 const video = document.getElementById("video");
-const cv = document.getElementById("fx");
+const cv = document.getElementById("main");
 const ctx = cv.getContext("2d");
+const fxc = document.createElement("canvas");      // 特效圖層（之後做 bloom）
+let fx = fxc.getContext("2d");
 const nameEl = document.getElementById("name");
 const statusEl = document.getElementById("status");
-let W, H;
-function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; }
+let W, H, M;
+function resize() { W = cv.width = fxc.width = innerWidth; H = cv.height = fxc.height = innerHeight; M = Math.min(W, H); }
 addEventListener("resize", resize); resize();
+addEventListener("keydown", e => { if (e.key.toLowerCase() === "h") document.getElementById("guide").classList.toggle("show"); });
 
 let landmarker;
 document.getElementById("btn").onclick = async () => {
@@ -79,24 +86,19 @@ document.getElementById("btn").onclick = async () => {
   } catch (e) { statusEl.textContent = "錯誤：" + e.message; }
 };
 
-// ---------- 座標轉換（影片 cover + 鏡像） ----------
-function toScreen(p) {
-  const vw = video.videoWidth, vh = video.videoHeight;
-  const s = Math.max(W / vw, H / vh);
-  const ox = (W - vw * s) / 2, oy = (H - vh * s) / 2;
-  return { x: W - (p.x * vw * s + ox), y: p.y * vh * s + oy };
+// ---------- 座標 ----------
+function cover() {
+  const vw = video.videoWidth, vh = video.videoHeight, s = Math.max(W / vw, H / vh);
+  return { vw, vh, s, ox: (W - vw * s) / 2, oy: (H - vh * s) / 2 };
 }
+function toScreen(p) { const c = cover(); return { x: W - (p.x * c.vw * c.s + c.ox), y: p.y * c.vh * c.s + c.oy }; }
 
-// ---------- 手勢判斷 ----------
+// ---------- 手勢 ----------
 const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-function fingers(lm) {
-  const wrist = lm[0];
-  const ext = (tip, pip) => d2(lm[tip], wrist) > d2(lm[pip], wrist) * 1.15;
-  const thumb = d2(lm[4], lm[17]) > d2(lm[3], lm[17]) * 1.1 && d2(lm[4], lm[5]) > d2(lm[0], lm[5]) * 0.45;
-  return [thumb, ext(8, 6), ext(12, 10), ext(16, 14), ext(20, 18)];
-}
 function pose(lm) {
-  const [t, i, m, r, p] = fingers(lm);
+  const w = lm[0], ext = (tip, pip) => d2(lm[tip], w) > d2(lm[pip], w) * 1.15;
+  const t = d2(lm[4], lm[17]) > d2(lm[3], lm[17]) * 1.1 && d2(lm[4], lm[5]) > d2(lm[0], lm[5]) * 0.45;
+  const i = ext(8, 6), m = ext(12, 10), r = ext(16, 14), p = ext(20, 18);
   const n = [i, m, r, p].filter(Boolean).length;
   if (n === 4) return "open";
   if (i && m && !r && !p) return "peace";
@@ -107,199 +109,353 @@ function pose(lm) {
   return "none";
 }
 
-// ---------- 粒子系統 ----------
-const parts = [];
-function spawn(o) { parts.push(Object.assign({ vx: 0, vy: 0, life: 1, decay: 0.02, size: 3, color: "#fff" }, o)); }
-function drawParts() {
-  ctx.globalCompositeOperation = "lighter";
-  for (let k = parts.length - 1; k >= 0; k--) {
-    const q = parts[k];
-    if (q.pull) { const dx = q.pull.x - q.x, dy = q.pull.y - q.y; q.vx += dx * 0.01; q.vy += dy * 0.01; q.vx *= 0.92; q.vy *= 0.92; }
-    q.x += q.vx; q.y += q.vy; q.life -= q.decay;
-    if (q.life <= 0) { parts.splice(k, 1); continue; }
-    ctx.globalAlpha = q.life; ctx.fillStyle = q.color;
-    ctx.beginPath(); ctx.arc(q.x, q.y, q.size * q.life, 0, 7); ctx.fill();
+// ---------- 工具 ----------
+const rnd = (a, b) => a + Math.random() * (b - a);
+let t = 0, shake = 0;
+const parts = [], rings = [];
+function spawn(o) { parts.push(Object.assign({ vx: 0, vy: 0, life: 1, decay: .02, w: 2, color: "#fff", g: 0, drag: 1 }, o)); }
+function ring(x, y, color, speed = 18, w = 6) { rings.push({ x, y, r: 10, color, speed, w, life: 1 }); }
+
+function glow(x, y, r, stops) {
+  const g = fx.createRadialGradient(x, y, 0, x, y, r);
+  stops.forEach(([o, c]) => g.addColorStop(o, c));
+  fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill();
+}
+// 鏡頭光斑：變形橫條 + 十字星芒 + 光暈 + 鬼影
+function flare(x, y, color, s = 1, rot = 0) {
+  fx.save(); fx.translate(x, y); fx.rotate(rot);
+  const L = W * 0.9 * s;
+  let g = fx.createLinearGradient(-L, 0, L, 0);
+  g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(.5, color); g.addColorStop(1, "rgba(0,0,0,0)");
+  fx.fillStyle = g; fx.fillRect(-L, -3 * s, L * 2, 6 * s);
+  fx.fillStyle = "#fff"; fx.fillRect(-L * .35, -1.2 * s, L * .7, 2.4 * s);
+  for (const a of [Math.PI / 2, Math.PI / 4, -Math.PI / 4]) {
+    fx.save(); fx.rotate(a); const l = (a === Math.PI / 2 ? 260 : 120) * s;
+    g = fx.createLinearGradient(-l, 0, l, 0);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(.5, "#fff"); g.addColorStop(1, "rgba(0,0,0,0)");
+    fx.fillStyle = g; fx.fillRect(-l, -1.5 * s, l * 2, 3 * s); fx.restore();
   }
-  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
-}
-function glowOrb(x, y, r, inner, outer) {
-  ctx.globalCompositeOperation = "lighter";
-  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, "#fff"); g.addColorStop(0.25, inner); g.addColorStop(1, outer);
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-  ctx.globalCompositeOperation = "source-over";
-}
-
-let t = 0;
-function showName(text, color) { nameEl.textContent = text; nameEl.style.color = color; nameEl.style.opacity = 1; }
-
-// ---------- 各術式 ----------
-function blue(c) { // 蒼：吸引
-  const r = 70 + Math.sin(t * 0.2) * 8;
-  for (let k = 0; k < 6; k++) { const a = Math.random() * 7, R = 150 + Math.random() * 200;
-    spawn({ x: c.x + Math.cos(a) * R, y: c.y + Math.sin(a) * R, pull: c, color: "#4cf", size: 3, decay: 0.015 }); }
-  ctx.strokeStyle = "rgba(80,180,255,.6)"; ctx.lineWidth = 3;
-  for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.ellipse(c.x, c.y, r * 2.2, r * 0.7, t * 0.05 + k, 0, 7); ctx.stroke(); }
-  glowOrb(c.x, c.y, r, "#3af", "rgba(0,60,255,0)");
-}
-function red(c) { // 赫：排斥
-  for (let k = 0; k < 6; k++) { const a = Math.random() * 7, s = 4 + Math.random() * 8;
-    spawn({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: "#f33", size: 4, decay: 0.03 }); }
-  glowOrb(c.x, c.y, 55 + Math.sin(t * 0.3) * 10, "#f22", "rgba(255,0,0,0)");
-}
-function purple(a, b) { // 茈
-  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const r = 120 + Math.sin(t * 0.15) * 15;
-  ctx.fillStyle = "rgba(40,0,60,.35)"; ctx.fillRect(0, 0, W, H);
-  for (let k = 0; k < 10; k++) { const ang = Math.random() * 7, s = 2 + Math.random() * 6;
-    spawn({ x: c.x, y: c.y, vx: Math.cos(ang) * s, vy: Math.sin(ang) * s, color: Math.random() < .5 ? "#a4f" : "#f6f", size: 5, decay: 0.02 }); }
-  glowOrb(a.x, a.y, 40, "#3af", "rgba(0,60,255,0)");
-  glowOrb(b.x, b.y, 40, "#f22", "rgba(255,0,0,0)");
-  glowOrb(c.x, c.y, r, "#b5f", "rgba(120,0,255,0)");
-}
-const stars = Array.from({ length: 300 }, () => ({ x: Math.random(), y: Math.random(), s: Math.random() * 2 }));
-function domain() { // 無量空處
-  ctx.fillStyle = "rgba(0,0,10,.75)"; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#fff";
-  for (const s of stars) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 0.05 + s.x * 50);
-    ctx.fillRect(((s.x + t * 0.0005) % 1) * W, s.y * H, s.s, s.s); }
-  ctx.globalAlpha = 1;
+  fx.restore();
+  glow(x, y, 90 * s, [[0, "#fff"], [.15, "#fff"], [.35, color], [1, "rgba(0,0,0,0)"]]);
   const cx = W / 2, cy = H / 2;
-  ctx.strokeStyle = "rgba(200,220,255,.5)";
-  for (let k = 0; k < 12; k++) { ctx.lineWidth = 1 + k * 0.3; ctx.beginPath();
-    ctx.arc(cx, cy, ((t * 3 + k * 60) % 720), 0, 7); ctx.stroke(); }
-  glowOrb(cx, cy, 160, "#cdf", "rgba(80,100,255,0)");
-}
-let flash = 0;
-function blackFlash(c) {
-  flash = 12;
-  for (let k = 0; k < 40; k++) { const a = Math.random() * 7, s = 5 + Math.random() * 15;
-    spawn({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: Math.random() < .5 ? "#f00" : "#300", size: 5, decay: 0.03 }); }
-  flash_pt = c;
-}
-let flash_pt = null;
-function drawBlackFlash() {
-  if (flash <= 0) return; flash--;
-  if (flash > 8) { ctx.fillStyle = "rgba(0,0,0,.8)"; ctx.fillRect(0, 0, W, H); }
-  const c = flash_pt;
-  for (let k = 0; k < 9; k++) {
-    ctx.strokeStyle = k % 2 ? "#f11" : "#000"; ctx.lineWidth = k % 2 ? 3 : 7;
-    ctx.beginPath(); ctx.moveTo(c.x, c.y);
-    let x = c.x, y = c.y, a = Math.random() * 7;
-    for (let s = 0; s < 8; s++) { a += (Math.random() - .5) * 1.2; x += Math.cos(a) * 40; y += Math.sin(a) * 40; ctx.lineTo(x, y); }
-    ctx.stroke();
-  }
-  showName("黑閃", "#f22");
-}
-function dogs(c) { // 玉犬
-  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H);
-  for (let k = 0; k < 8; k++) spawn({ x: c.x + (Math.random() - .5) * 200, y: c.y + 80, vy: -1 - Math.random() * 3, vx: (Math.random() - .5) * 2, color: "#000", size: 14, decay: 0.012 });
-  ctx.globalCompositeOperation = "source-over";
-  for (const [dx, col] of [[-120, "#eee"], [120, "#111"]]) {
-    const x = c.x + dx, y = c.y + Math.sin(t * 0.2 + dx) * 6;
-    ctx.fillStyle = col; ctx.strokeStyle = "#5af"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(x - 40, y + 30); ctx.lineTo(x - 35, y - 50); ctx.lineTo(x - 15, y - 20);
-    ctx.lineTo(x + 15, y - 20); ctx.lineTo(x + 35, y - 50); ctx.lineTo(x + 40, y + 30); ctx.lineTo(x, y + 60); ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#f33"; ctx.beginPath(); ctx.arc(x - 14, y + 5, 5, 0, 7); ctx.arc(x + 14, y + 5, 5, 0, 7); ctx.fill();
+  for (const k of [.4, .7, 1.3]) {
+    const gx = x + (cx - x) * k * 2, gy = y + (cy - y) * k * 2;
+    fx.globalAlpha = .18; fx.strokeStyle = color; fx.lineWidth = 2;
+    fx.beginPath(); fx.arc(gx, gy, 20 * k * s + 10, 0, 7); fx.stroke(); fx.globalAlpha = 1;
   }
 }
-const curses = Array.from({ length: 8 }, (_, k) => ({ a: k * 0.785, r: 120 + (k % 3) * 50, s: 0.02 + k * 0.004 }));
-function geto(c) { // 咒靈操術
-  ctx.fillStyle = "rgba(20,0,10,.3)"; ctx.fillRect(0, 0, W, H);
-  for (const q of curses) {
-    q.a += q.s; const x = c.x + Math.cos(q.a) * q.r * 1.5, y = c.y + Math.sin(q.a) * q.r;
-    spawn({ x, y, color: "#6a2", size: 6, decay: 0.05 });
-    glowOrb(x, y, 28, "#9f3", "rgba(60,0,80,0)");
-    ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(x - 7, y - 3, 4, 0, 7); ctx.arc(x + 7, y - 3, 4, 0, 7); ctx.fill();
+// 速度線
+function speedLines(x, y, color, n = 60, inner = .25) {
+  fx.fillStyle = color;
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * Math.PI * 2, r0 = M * rnd(inner, inner + .3), r1 = Math.hypot(W, H);
+    const w = rnd(.002, .008);
+    fx.globalAlpha = rnd(.15, .6);
+    fx.beginPath();
+    fx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0);
+    fx.lineTo(x + Math.cos(a - w) * r1, y + Math.sin(a - w) * r1);
+    fx.lineTo(x + Math.cos(a + w) * r1, y + Math.sin(a + w) * r1);
+    fx.fill();
   }
-  glowOrb(c.x, c.y, 50, "#525", "rgba(30,0,40,0)");
+  fx.globalAlpha = 1;
 }
-function choso(a, b) { // 穿血
-  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const len = Math.max(W, H);
-  const w = 14 + Math.sin(t * 0.8) * 4;
-  ctx.globalCompositeOperation = "lighter";
-  const g = ctx.createLinearGradient(c.x, c.y - w, c.x, c.y + w);
-  g.addColorStop(0, "rgba(120,0,0,0)"); g.addColorStop(.5, "#f22"); g.addColorStop(1, "rgba(120,0,0,0)");
-  ctx.fillStyle = g; ctx.fillRect(c.x - len, c.y - w, len * 2, w * 2);
-  ctx.globalCompositeOperation = "source-over";
-  for (let k = 0; k < 8; k++) { const dir = Math.random() < .5 ? -1 : 1;
-    spawn({ x: c.x, y: c.y, vx: dir * (8 + Math.random() * 12), vy: (Math.random() - .5) * 3, color: "#b00", size: 4, decay: 0.02 }); }
-  glowOrb(c.x, c.y, 60, "#f33", "rgba(150,0,0,0)");
+function sparkle(x, y, s, color = "#fff") {
+  fx.fillStyle = color;
+  fx.beginPath(); fx.moveTo(x, y - s); fx.lineTo(x + s * .15, y); fx.lineTo(x, y + s); fx.lineTo(x - s * .15, y); fx.fill();
+  fx.beginPath(); fx.moveTo(x - s, y); fx.lineTo(x, y + s * .15); fx.lineTo(x + s, y); fx.lineTo(x, y - s * .15); fx.fill();
+}
+function bolt(x, y, len, color, width, seg = 10) {
+  fx.strokeStyle = color; fx.lineWidth = width; fx.lineJoin = "miter";
+  fx.beginPath(); fx.moveTo(x, y);
+  let a = Math.random() * 7;
+  for (let s = 0; s < seg; s++) { a += rnd(-.9, .9); x += Math.cos(a) * len / seg; y += Math.sin(a) * len / seg; fx.lineTo(x, y); }
+  fx.stroke();
 }
 
-// ---------- 骨架 ----------
-const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
-function drawHand(pts) {
-  ctx.strokeStyle = "rgba(90,200,255,.9)"; ctx.lineWidth = 2;
-  for (const [a, b] of BONES) { ctx.beginPath(); ctx.moveTo(pts[a].x, pts[a].y); ctx.lineTo(pts[b].x, pts[b].y); ctx.stroke(); }
-  ctx.fillStyle = "#fff"; for (const p of pts) { ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 7); ctx.fill(); }
+// ---------- 畫面調色（每個術式有自己的色調） ----------
+let grade = { tint: null, dark: 0, sat: 1, invert: 0 };
+function setGrade(tint, dark, sat = 1) { grade.tint = tint; grade.dark = dark; grade.sat = sat; }
+
+// ---------- 術式 ----------
+function blue(c) {
+  setGrade("rgba(0,90,255,.45)", .55, .6);
+  speedLines(c.x, c.y, "#9cf", 40, .2);
+  for (let k = 0; k < 14; k++) {
+    const a = Math.random() * 7, R = M * rnd(.25, .6);
+    spawn({ x: c.x + Math.cos(a) * R, y: c.y + Math.sin(a) * R, pull: c, swirl: 1, color: Math.random() < .3 ? "#fff" : "#3bf", w: rnd(1.5, 3.5), decay: .02 });
+  }
+  const r = M * .09 * (1 + Math.sin(t * .25) * .06);
+  for (let k = 0; k < 4; k++) {
+    fx.strokeStyle = `rgba(120,200,255,${.5 - k * .1})`; fx.lineWidth = 3 - k * .5;
+    fx.beginPath(); fx.ellipse(c.x, c.y, r * (2 + k * .6), r * (.55 + k * .15), -t * .04 * (k % 2 ? 1 : -1) + k, 0, 7); fx.stroke();
+  }
+  glow(c.x, c.y, r * 2.6, [[0, "rgba(255,255,255,1)"], [.2, "rgba(120,220,255,1)"], [.45, "rgba(0,110,255,.7)"], [1, "rgba(0,30,120,0)"]]);
+  flare(c.x, c.y, "#29f", .9);
+  if (t % 14 === 0) ring(c.x, c.y, "#6cf", -10, 4);
 }
+function red(c) {
+  setGrade("rgba(255,20,30,.45)", .6, .5);
+  speedLines(c.x, c.y, "#f88", 30, .15);
+  for (let k = 0; k < 8; k++) {
+    const a = Math.random() * 7, s = rnd(6, 20);
+    spawn({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: Math.random() < .3 ? "#fff" : "#f22", w: rnd(1.5, 3), decay: .035 });
+  }
+  if (Math.random() < .5) spawn({ x: c.x + rnd(-20, 20), y: c.y, vx: rnd(-4, 4), vy: rnd(-6, -1), g: .5, color: "#a00", w: rnd(3, 7), decay: .015, blob: 1 });
+  const r = M * .05 * (1 + Math.sin(t * .4) * .12);
+  glow(c.x, c.y, r * 3, [[0, "#fff"], [.15, "#fff"], [.35, "rgba(255,40,40,1)"], [1, "rgba(120,0,0,0)"]]);
+  flare(c.x, c.y, "#f22", 1.1);
+  if (t % 10 === 0) ring(c.x, c.y, "#f44", 22, 5);
+  shake = Math.max(shake, 3);
+}
+function purple(a, b) {
+  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  setGrade("rgba(140,40,255,.5)", .65, .4);
+  const R = M * .2 * (1 + Math.sin(t * .15) * .05);
+  for (let k = 0; k < 7; k++) {
+    fx.strokeStyle = `rgba(${200 - k * 10},${120 + k * 15},255,${.55 - k * .06})`;
+    fx.lineWidth = k === 0 ? 5 : 2;
+    fx.beginPath(); fx.arc(c.x, c.y, R * (1 + k * .28) + Math.sin(t * .1 + k) * 6, 0, 7); fx.stroke();
+  }
+  for (let k = 0; k < 18; k++) {
+    const ang = k / 18 * 7 + t * .01, rr = R * (1 + (k % 4) * .3);
+    sparkle(c.x + Math.cos(ang) * rr, c.y + Math.sin(ang) * rr, 6 + (k % 3) * 5 * (1 + Math.sin(t * .3 + k)), "#fff");
+  }
+  for (let k = 0; k < 10; k++) {
+    const ang = Math.random() * 7, s = rnd(2, 8);
+    spawn({ x: c.x, y: c.y, vx: Math.cos(ang) * s, vy: Math.sin(ang) * s, color: Math.random() < .5 ? "#c8f" : "#fff", w: 2, decay: .02 });
+  }
+  glow(a.x, a.y, 60, [[0, "#fff"], [.3, "#3af"], [1, "rgba(0,60,255,0)"]]);
+  glow(b.x, b.y, 60, [[0, "#fff"], [.3, "#f33"], [1, "rgba(255,0,0,0)"]]);
+  glow(c.x, c.y, R * 1.2, [[0, "#fff"], [.18, "#fff"], [.4, "rgba(190,90,255,.9)"], [1, "rgba(60,0,140,0)"]]);
+  flare(c.x, c.y, "#b6f", 1.4);
+  if (t % 18 === 0) ring(c.x, c.y, "#d9f", 14, 4);
+  shake = Math.max(shake, 4);
+}
+const stars = Array.from({ length: 400 }, () => ({ x: Math.random(), y: Math.random(), s: Math.random() * 2.5, p: Math.random() * 7 }));
+function domain() {
+  setGrade("rgba(20,30,80,.6)", .9, .2);
+  const cx = W / 2, cy = H / 2;
+  for (const s of stars) {
+    fx.globalAlpha = .4 + .6 * Math.abs(Math.sin(t * .04 + s.p));
+    const x = cx + (s.x - .5) * W * (1 + (t % 600) / 600), y = cy + (s.y - .5) * H * (1 + (t % 600) / 600);
+    s.s > 2.2 ? sparkle(x, y, 8, "#fff") : (fx.fillStyle = "#fff", fx.fillRect(x, y, s.s, s.s));
+  }
+  fx.globalAlpha = 1;
+  for (let k = 0; k < 10; k++) {
+    fx.strokeStyle = `rgba(180,210,255,${.4 - k * .03})`; fx.lineWidth = 1.5;
+    fx.beginPath(); fx.arc(cx, cy, (t * 4 + k * 90) % (M * 1.2), 0, 7); fx.stroke();
+  }
+  glow(cx, cy, M * .35, [[0, "#fff"], [.1, "rgba(220,235,255,1)"], [.4, "rgba(80,110,255,.4)"], [1, "rgba(0,0,40,0)"]]);
+  flare(cx, cy, "#9bf", 1.6);
+}
+let flash = 0, flashPt = null;
+function blackFlash(c) {
+  flash = 16; flashPt = c; shake = 25;
+  for (let k = 0; k < 60; k++) {
+    const a = Math.random() * 7, s = rnd(8, 30);
+    spawn({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: Math.random() < .5 ? "#f11" : "#fff", w: rnd(2, 4), decay: .04 });
+  }
+  ring(c.x, c.y, "#f22", 35, 10); ring(c.x, c.y, "#fff", 25, 3);
+}
+function dogs(c) {
+  setGrade("rgba(20,40,90,.45)", .75, .2);
+  // 地面影子
+  const gy = c.y + M * .18;
+  glow(c.x, gy, M * .35, [[0, "rgba(0,0,0,.95)"], [.7, "rgba(0,0,10,.7)"], [1, "rgba(0,0,0,0)"]]);
+  for (let k = 0; k < 6; k++) spawn({ x: c.x + rnd(-M * .3, M * .3), y: gy, vy: rnd(-4, -1), vx: rnd(-.6, .6), color: "#000", w: rnd(6, 16), decay: .015, blob: 1, dark: 1 });
+  for (const [dx, eye] of [[-1, "#7cf"], [1, "#fff"]]) {
+    const x = c.x + dx * M * .2, y = gy - M * .06 + Math.sin(t * .15 + dx) * 4;
+    fx.save(); fx.translate(x, y); fx.scale(dx * M / 600, M / 600);
+    fx.fillStyle = dx < 0 ? "#e8eef5" : "#0b0b10"; fx.strokeStyle = "rgba(120,190,255,.8)"; fx.lineWidth = 3;
+    fx.beginPath();
+    fx.moveTo(-60, 40); fx.lineTo(-50, -60); fx.lineTo(-20, -25); fx.lineTo(20, -25); fx.lineTo(50, -60);
+    fx.lineTo(60, 40); fx.lineTo(25, 70); fx.lineTo(0, 110); fx.lineTo(-25, 70); fx.closePath();
+    fx.fill(); fx.stroke();
+    fx.restore();
+    glow(x - M * .025, y, 14, [[0, "#fff"], [.3, eye], [1, "rgba(0,0,0,0)"]]);
+    glow(x + M * .025, y, 14, [[0, "#fff"], [.3, eye], [1, "rgba(0,0,0,0)"]]);
+  }
+  speedLines(c.x, gy, "#000", 25, .3);
+}
+const curses = Array.from({ length: 10 }, (_, k) => ({ a: k * .63, r: .15 + (k % 3) * .07, s: .02 + k * .003, hue: 90 + k * 25 }));
+function geto(c) {
+  setGrade("rgba(90,0,90,.45)", .7, .3);
+  glow(c.x, c.y, M * .4, [[0, "rgba(40,0,40,.8)"], [1, "rgba(0,0,0,0)"]]);
+  for (const q of curses) {
+    q.a += q.s; const x = c.x + Math.cos(q.a) * M * q.r * 1.6, y = c.y + Math.sin(q.a) * M * q.r;
+    spawn({ x, y, color: `hsl(${q.hue},90%,55%)`, w: 5, decay: .04 });
+    glow(x, y, 34, [[0, "#fff"], [.25, `hsl(${q.hue},90%,60%)`], [1, "rgba(0,0,0,0)"]]);
+    fx.fillStyle = "#000"; fx.beginPath(); fx.arc(x - 8, y - 3, 4, 0, 7); fx.arc(x + 8, y - 3, 4, 0, 7); fx.fill();
+    fx.fillStyle = "#ff3"; fx.beginPath(); fx.arc(x - 8, y - 3, 1.5, 0, 7); fx.arc(x + 8, y - 3, 1.5, 0, 7); fx.fill();
+  }
+  // 咒靈玉
+  glow(c.x, c.y, 40, [[0, "#000"], [.6, "#203"], [.8, "#a6f"], [1, "rgba(0,0,0,0)"]]);
+}
+function choso(a, b) {
+  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  setGrade("rgba(255,0,20,.5)", .65, .3);
+  const w = M * .022 * (1 + Math.sin(t * .9) * .25), L = Math.hypot(W, H);
+  fx.save(); fx.translate(c.x, c.y);
+  for (const [ww, col] of [[w * 3, "rgba(255,0,0,.25)"], [w, "rgba(255,30,30,.9)"], [w * .35, "#fff"]]) {
+    const g = fx.createLinearGradient(0, -ww, 0, ww);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(.5, col); g.addColorStop(1, "rgba(0,0,0,0)");
+    fx.fillStyle = g; fx.fillRect(-L, -ww, L * 2, ww * 2);
+  }
+  fx.restore();
+  for (let k = 0; k < 14; k++) {
+    const dir = Math.random() < .5 ? -1 : 1;
+    spawn({ x: c.x, y: c.y + rnd(-w, w), vx: dir * rnd(15, 35), vy: rnd(-2, 2), color: Math.random() < .3 ? "#fff" : "#e00", w: rnd(1.5, 3), decay: .03 });
+  }
+  for (let k = 0; k < 3; k++) spawn({ x: c.x + rnd(-30, 30), y: c.y, vx: rnd(-5, 5), vy: rnd(-5, 0), g: .6, color: "#8a0000", w: rnd(4, 9), decay: .012, blob: 1 });
+  glow(c.x, c.y, M * .12, [[0, "#fff"], [.25, "#f33"], [1, "rgba(100,0,0,0)"]]);
+  flare(c.x, c.y, "#f11", 1.2);
+  if (t % 12 === 0) ring(c.x, c.y, "#f33", 20, 4);
+  shake = Math.max(shake, 5);
+}
+
+// ---------- 粒子 / 衝擊波 ----------
+function updateFx() {
+  for (let k = parts.length - 1; k >= 0; k--) {
+    const q = parts[k], px = q.x, py = q.y;
+    if (q.pull) {
+      const dx = q.pull.x - q.x, dy = q.pull.y - q.y, d = Math.hypot(dx, dy) + 1;
+      q.vx += dx / d * 1.6 - dy / d * 1.1; q.vy += dy / d * 1.6 + dx / d * 1.1; q.vx *= .93; q.vy *= .93;
+      if (d < 20) q.life = 0;
+    }
+    q.vy += q.g; q.x += q.vx; q.y += q.vy; q.life -= q.decay;
+    if (q.life <= 0) { parts.splice(k, 1); continue; }
+    const g = q.dark ? dctx : fx;
+    g.globalAlpha = Math.min(1, q.life * 1.5);
+    if (q.blob) { g.fillStyle = q.color; g.beginPath(); g.arc(q.x, q.y, q.w * q.life, 0, 7); g.fill(); g.globalAlpha = 1; continue; }
+    if (q.blob) { fx.fillStyle = q.color; fx.beginPath(); fx.arc(q.x, q.y, q.w * q.life, 0, 7); fx.fill(); }
+    else { fx.strokeStyle = q.color; fx.lineWidth = q.w; fx.lineCap = "round";
+      fx.beginPath(); fx.moveTo(px - q.vx * 1.5, py - q.vy * 1.5); fx.lineTo(q.x, q.y); fx.stroke(); }
+  }
+  fx.globalAlpha = 1;
+  for (let k = rings.length - 1; k >= 0; k--) {
+    const r = rings[k]; r.r += r.speed; r.life -= .035;
+    if (r.life <= 0 || r.r < 0) { rings.splice(k, 1); continue; }
+    if (r.speed < 0 && r.r < 5) r.r = M * .5;
+    fx.globalAlpha = r.life; fx.strokeStyle = r.color; fx.lineWidth = r.w * r.life;
+    fx.beginPath(); fx.arc(r.x, r.y, Math.abs(r.r), 0, 7); fx.stroke();
+  }
+  fx.globalAlpha = 1;
+}
+
+// ---------- 合成 ----------
+let gCur = { dark: 0 };
+function composite() {
+  const sx = rnd(-shake, shake), sy = rnd(-shake, shake);
+  shake *= .85;
+  gCur.dark += (grade.dark - gCur.dark) * .15;
+  ctx.save(); ctx.translate(sx, sy);
+  // 鏡頭畫面（鏡像 + 調色）
+  const c = cover();
+  const sat = grade.tint ? grade.sat : 1;
+  ctx.filter = `saturate(${sat}) contrast(${1 + gCur.dark * .4}) brightness(${1 - gCur.dark * .45})${grade.invert ? " invert(1)" : ""}`;
+  ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
+  ctx.drawImage(video, c.ox, c.oy, c.vw * c.s, c.vh * c.s);
+  ctx.restore(); ctx.filter = "none";
+  if (grade.tint) { ctx.globalCompositeOperation = "overlay"; ctx.fillStyle = grade.tint; ctx.fillRect(-50, -50, W + 100, H + 100); ctx.globalCompositeOperation = "source-over"; }
+  // 暗角
+  const v = ctx.createRadialGradient(W / 2, H / 2, M * .3, W / 2, H / 2, Math.hypot(W, H) * .6);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, `rgba(0,0,0,${.35 + gCur.dark * .55})`);
+  ctx.fillStyle = v; ctx.fillRect(-50, -50, W + 100, H + 100);
+  // 黑色特效（影子、黑閃）先正常疊，亮光再用 lighter + bloom
+  ctx.drawImage(fxDark, 0, 0);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.filter = "blur(24px)"; ctx.drawImage(fxc, 0, 0);
+  ctx.filter = "blur(6px)"; ctx.drawImage(fxc, 0, 0);
+  ctx.filter = "none"; ctx.drawImage(fxc, 0, 0);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.restore();
+  // 底片顆粒
+  ctx.globalAlpha = .06;
+  for (let k = 0; k < 150; k++) { ctx.fillStyle = Math.random() < .5 ? "#fff" : "#000"; ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
+  ctx.globalAlpha = 1;
+}
+// 黑色元素需要另一個圖層（lighter 混合無法畫出黑色）
+const fxDarkC = document.createElement("canvas"); const fxDark = fxDarkC;
+const dctx = fxDarkC.getContext("2d");
+addEventListener("resize", () => { fxDarkC.width = W; fxDarkC.height = H; }); fxDarkC.width = W; fxDarkC.height = H;
 
 // ---------- 主迴圈 ----------
-const prevFist = {};
-const stable = {};
-addEventListener("keydown", e => { if (e.key === "h" || e.key === "H") document.getElementById("guide").classList.toggle("show"); });
-let lastT = -1, hold = { name: "", n: 0 };
+const prevFist = {}, stable = {};
+let lastT = -1, hands = [];
 function loop() {
   t++;
-  ctx.clearRect(0, 0, W, H);
-  let hands = [];
+  fx.clearRect(0, 0, W, H); dctx.clearRect(0, 0, W, H);
+  grade = { tint: null, dark: 0, sat: 1, invert: 0 };
   if (video.currentTime !== lastT) {
     lastT = video.currentTime;
     const res = landmarker.detectForVideo(video, performance.now());
     hands = res.landmarks.map(lm => ({ lm, pts: lm.map(toScreen), pose: pose(lm) }));
-    loop.hands = hands;
-  } else hands = loop.hands || [];
-
-  let label = "", color = "#fff";
-  hands.forEach((h, i) => {
-    const s = stable[i] || (stable[i] = { raw: "", n: 0, pose: "none" });
-    if (h.pose === s.raw) s.n++; else { s.raw = h.pose; s.n = 0; }
-    if (s.n >= 6 || h.pose === "fist") s.pose = h.pose;
-    h.pose = s.pose;
-  });
-  const poses = hands.map(h => h.pose);
-  const center = h => toScreen({ x: (h.lm[0].x + h.lm[9].x) / 2, y: (h.lm[0].y + h.lm[9].y) / 2 });
-
-  if (hands.length === 2) {
-    const [A, B] = hands, ca = center(A), cb = center(B);
-    const close = d2(ca, cb) < Math.min(W, H) * 0.18;
-    if (poses[0] === "open" && poses[1] === "open" && close) { choso(ca, cb); label = "赤血操術・穿血"; color = "#f33"; }
-    else if (poses.includes("open") && poses.includes("point")) {
-      const blueH = poses[0] === "open" ? ca : cb, redH = poses[0] === "open" ? cb : ca;
-      purple(blueH, redH); label = "虛式「茈」"; color = "#c6f";
-    }
-    else if (poses[0] === "peace" && poses[1] === "peace") { domain(); label = "領域展開・無量空處"; color = "#cdf"; }
-  }
-  if (!label) {
     hands.forEach((h, i) => {
-      const c = center(h), tip = h.pts[8];
-      if (h.pose === "open") { blue(c); label = "術式順轉「蒼」"; color = "#4cf"; }
-      else if (h.pose === "point") { red(tip); label = "術式反轉「赫」"; color = "#f44"; }
-      else if (h.pose === "horns") { geto(c); label = "咒靈操術"; color = "#9f3"; }
-      else if (h.pose === "shaka") { dogs(c); label = "十種影法術・玉犬"; color = "#8af"; }
+      const s = stable[i] || (stable[i] = { raw: "", n: 0, pose: "none" });
+      if (h.pose === s.raw) s.n++; else { s.raw = h.pose; s.n = 0; }
+      if (s.n >= 4 || h.pose === "fist") s.pose = h.pose;
+      h.pose = s.pose;
     });
   }
-  // 黑閃：拳頭快速移動
+  const center = h => toScreen({ x: (h.lm[0].x + h.lm[9].x) / 2, y: (h.lm[0].y + h.lm[9].y) / 2 });
+
+  let label = "", color = "#fff";
+  // 黑閃優先
   hands.forEach((h, i) => {
     const c = center(h);
     if (h.pose === "fist") {
       const p = prevFist[i];
-      if (p && d2(c, p) > Math.min(W, H) * 0.08 && flash <= 0) blackFlash(c);
+      if (p && d2(c, p) > M * .07 && flash <= 0) blackFlash(c);
       prevFist[i] = c;
     } else prevFist[i] = null;
   });
 
-  drawParts();
-  drawBlackFlash();
-  hands.forEach(h => drawHand(h.pts));
+  // 黑色元素畫到 dark 圖層：暫時把 fx 指向它
+  const realFx = fx;
+  const withDark = fn => { fx = dctx; fn(); fx = realFx; };
 
-  if (flash <= 0) {
-    if (label) showName(label, color); else nameEl.style.opacity = 0;
+  if (flash > 0) { drawBlackFlashSplit(); label = "黑閃"; color = "#f22"; }
+  else {
+    const poses = hands.map(h => h.pose);
+    if (hands.length === 2) {
+      const [A, B] = hands, ca = center(A), cb = center(B);
+      if (poses[0] === "open" && poses[1] === "open" && d2(ca, cb) < M * .2) { choso(ca, cb); label = "赤血操術・穿血"; color = "#f33"; }
+      else if (poses.includes("open") && poses.includes("point")) {
+        const bh = poses[0] === "open" ? ca : cb, rh = poses[0] === "open" ? hands[1].pts[8] : hands[0].pts[8];
+        purple(bh, rh); label = "虛式「茈」"; color = "#c8f";
+      } else if (poses[0] === "peace" && poses[1] === "peace") { domain(); label = "領域展開・無量空處"; color = "#cdf"; }
+    }
+    if (!label) for (const h of hands) {
+      const c = center(h);
+      if (h.pose === "open") { blue(c); label = "術式順轉「蒼」"; color = "#4cf"; }
+      else if (h.pose === "point") { red(h.pts[8]); label = "術式反轉「赫」"; color = "#f44"; }
+      else if (h.pose === "horns") { geto(c); label = "咒靈操術"; color = "#b6f"; }
+      else if (h.pose === "shaka") { withDark(() => dogs(c)); label = "十種影法術・玉犬"; color = "#8af"; }
+      if (label) break;
+    }
   }
+  updateFx();
+  composite();
+  document.body.classList.toggle("cine", !!label);
+  if (label) { nameEl.textContent = label; nameEl.style.color = color; nameEl.classList.add("on"); }
+  else nameEl.classList.remove("on");
   requestAnimationFrame(loop);
+}
+// 黑閃：黑色閃電畫在 dark 圖層，紅光在亮圖層
+function drawBlackFlashSplit() {
+  const realFx = fx;
+  fx = dctx;
+  if (flash > 0) { const c = flashPt; speedLines(c.x, c.y, "#000", 80, .1);
+    for (let k = 0; k < 10; k++) bolt(c.x, c.y, M * rnd(.3, .7), "#000", rnd(6, 12)); }
+  fx = realFx;
+  if (flash <= 0) return;
+  flash--;
+  grade.invert = flash > 11 ? 1 : 0;
+  setGrade("rgba(255,0,0,.35)", .7, 0);
+  const c = flashPt;
+  for (let k = 0; k < 10; k++) bolt(c.x, c.y, M * rnd(.3, .7), "#f11", rnd(2, 4));
+  glow(c.x, c.y, M * .15, [[0, "#fff"], [.3, "#f22"], [1, "rgba(80,0,0,0)"]]);
+  flare(c.x, c.y, "#f11", 1.3, rnd(-.3, .3));
 }
 </script>
 </body>
