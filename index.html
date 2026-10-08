@@ -62,13 +62,13 @@
   <b>雙手握拳併在一起、指向側邊</b> 赤血操術・穿血（水平射出）<br>
   <i>伏黑惠</i><br>
   <b>拇指 + 小指</b> 玉犬　<b>雙手</b> 嵌合暗翳庭<br>
+  <b>雙手張開、拇指相扣（手影鳥）</b> 鵺<br>
+  <b>一手握拳、另一手張開蓋住拳頭</b> 魔虛羅<br>
   <i>夏油傑</i><br>
   <b>食指 + 小指</b> 咒靈操術<br>
   <i>兩面宿儺</i><br>
   <b>比 YA 快速揮砍</b> 解　<b>只伸拇指</b> 「開」<br>
   <b>雙手 食指 + 小指</b> 領域展開・伏魔御廚子<br>
-  <i>七海建人</i><br>
-  <b>單手比 YA</b> 十劃咒法<br>
   <i>兩隻手可以同時用不同術式・按 H 關閉</i>
 </div>
 <div id="start">
@@ -813,24 +813,113 @@ function fuga(h) {      // 「開」：火焰之箭
   flare(s.x, s.y, "#f80", .8);
 }
 
-// ================= 七海：十劃咒法 =================
-function ratio(h) {
-  setGrade("rgba(200,170,60,.3)", .5, .5);
-  const a = h.pts[8], b = h.pts[12], w = h.pts[0];
-  const tipX = (a.x + b.x) / 2, tipY = (a.y + b.y) / 2;
-  let dx = tipX - w.x, dy = tipY - w.y; const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
-  const len = M * .5, sx = tipX, sy = tipY;
-  // 一條線段，在 7:3 的位置標出弱點
-  L.strokeStyle = "rgba(255,230,140,.7)"; L.lineWidth = 2; L.setLineDash([10, 8]);
-  L.beginPath(); L.moveTo(sx, sy); L.lineTo(sx + dx * len, sy + dy * len); L.stroke(); L.setLineDash([]);
-  for (const f of [0, 1]) { const x = sx + dx * len * f, y = sy + dy * len * f; L.beginPath(); L.moveTo(x - dy * 14, y + dx * 14); L.lineTo(x + dy * 14, y - dx * 14); L.stroke(); }
-  const px = sx + dx * len * .7, py = sy + dy * len * .7, pulse = 1 + Math.sin(t * .3) * .2;
-  L.strokeStyle = "#ff3030"; L.lineWidth = 4;
-  L.beginPath(); L.moveTo(px - 18 * pulse, py - 18 * pulse); L.lineTo(px + 18 * pulse, py + 18 * pulse);
-  L.moveTo(px + 18 * pulse, py - 18 * pulse); L.lineTo(px - 18 * pulse, py + 18 * pulse); L.stroke();
-  glow(L, px, py, 40, [[0, "#fff"], [.3, "#f44"], [1, "rgba(255,0,0,0)"]]);
-  L.fillStyle = "rgba(255,230,160,.9)"; L.font = `bold ${M * .03}px serif`; L.textAlign = "center";
-  L.fillText("7 : 3", px - dy * 40, py + dx * 40);
+// ================= 伏黑惠：鵺、魔虛羅 =================
+const shikiState = {};
+function summonTime(id) {                       // 回傳召喚後經過的毫秒數（中斷超過 1 秒就重新召喚）
+  const now = performance.now(), st = shikiState[id] || (shikiState[id] = { start: now, last: -1e9 });
+  if (now - st.last > 1000) st.start = now;
+  st.last = now;
+  return now - st.start;
+}
+function nuePath(g, flap) {
+  // 以身體中心為原點，單位約 100；flap 是翅膀角度
+  g.beginPath();
+  g.moveTo(0, -38);
+  for (const side of [1, -1]) {
+    const wy = -10 - flap * 60;
+    g.moveTo(side * 12, -20);
+    g.bezierCurveTo(side * 60, -30 - flap * 30, side * 120, wy - 30, side * 190, wy - 20);
+    // 羽毛的鋸齒邊
+    const feathers = 6;
+    for (let k = 0; k <= feathers; k++) {
+      const f = k / feathers, x = side * (190 - f * 170), y = wy - 20 + f * 45 + 18 + (k % 2 ? 14 : 0);
+      g.lineTo(x, y + f * 10);
+    }
+    g.lineTo(side * 10, 25);
+  }
+  g.closePath();
+}
+function nue(a, b) {
+  const ms = summonTime("nue"), e = Math.min(1, ms / 700), ease = 1 - Math.pow(1 - e, 3);
+  setGrade("rgba(30,70,200,.5)", .75, .3);
+  const c = { x: (a.c.x + b.c.x) / 2, y: (a.c.y + b.c.y) / 2 - M * (.1 + .12 * ease) };
+  const s = M / 520 * (.4 + .6 * ease), flap = Math.sin(performance.now() / 140);
+  inkPool((a.c.x + b.c.x) / 2, (a.c.y + b.c.y) / 2 + M * .05, M * .2);
+  // 翅膀與身體（黑色本體 + 藍色輪廓光）
+  for (const g of [D, L]) { g.save(); g.translate(c.x, c.y); g.scale(s, s); }
+  nuePath(D, flap); D.fillStyle = "#04040a"; D.fill();
+  nuePath(L, flap); L.strokeStyle = "rgba(110,170,255,.9)"; L.lineWidth = 3 / s * .6; L.stroke();
+  // 面具般的白色頭部
+  D.fillStyle = "#04040a"; D.beginPath(); D.ellipse(0, -10, 26, 34, 0, 0, TAU); D.fill();
+  L.fillStyle = "rgba(225,230,240,.85)"; L.beginPath();
+  L.moveTo(-22, -40); L.quadraticCurveTo(0, -55, 22, -40); L.lineTo(16, -5); L.quadraticCurveTo(0, 8, -16, -5); L.closePath(); L.fill();
+  for (const g of [D, L]) g.restore();
+  D.fillStyle = "#000";
+  for (const sx of [-1, 1]) { D.beginPath(); D.ellipse(c.x + sx * 9 * s, c.y - 28 * s, 5 * s, 3 * s, sx * .4, 0, TAU); D.fill(); }
+  for (const sx of [-1, 1]) glow(L, c.x + sx * 9 * s, c.y - 28 * s, 10 * s, [[0, "#fff"], [.4, "#8cf"], [1, "rgba(0,0,0,0)"]]);
+  // 雷電
+  for (let k = 0; k < 5; k++) {
+    const side = k % 2 ? 1 : -1, wx = c.x + side * rnd(60, 180) * s, wy = c.y + (-30 - flap * 60) * s;
+    bolt(L, wx, wy, M * rnd(.08, .2), "rgba(170,210,255,.95)", rnd(1.5, 3), 7, rnd(0, TAU), 1.1);
+  }
+  if (Math.random() < .12) { whiteout = 3; shake = 8; bolt(L, c.x, c.y, M * .5, "#fff", 4, 10, Math.PI / 2, .5); }
+  glow(L, c.x, c.y, M * .2 * s * 3, [[0, "rgba(120,170,255,.35)"], [1, "rgba(0,0,0,0)"]]);
+}
+
+function wheel(x, y, r, rot) {
+  L.save(); L.translate(x, y); L.rotate(rot);
+  L.strokeStyle = "rgba(235,215,160,.95)"; L.fillStyle = "rgba(235,215,160,.95)";
+  L.lineWidth = r * .07; L.beginPath(); L.arc(0, 0, r * .62, 0, TAU); L.stroke();
+  L.lineWidth = r * .04; L.beginPath(); L.arc(0, 0, r * .2, 0, TAU); L.stroke();
+  for (let k = 0; k < 8; k++) {
+    L.save(); L.rotate(k / 8 * TAU);
+    L.lineWidth = r * .05; L.beginPath(); L.moveTo(r * .2, 0); L.lineTo(r * .95, 0); L.stroke();
+    L.beginPath(); L.ellipse(r * .98, 0, r * .07, r * .13, 0, 0, TAU); L.fill();   // 把手
+    L.restore();
+  }
+  L.restore();
+}
+function mahoragaPath(g) {
+  // 原點：底部中央，高度約 600
+  g.beginPath();
+  g.moveTo(-260, 0);
+  g.bezierCurveTo(-270, -180, -250, -300, -200, -370);            // 左臂外側
+  g.bezierCurveTo(-180, -420, -120, -440, -70, -445);             // 左肩
+  g.lineTo(-45, -470);                                            // 脖子
+  g.bezierCurveTo(-60, -540, -40, -600, 0, -605);                 // 頭左
+  g.bezierCurveTo(40, -600, 60, -540, 45, -470);                  // 頭右
+  g.lineTo(70, -445);
+  g.bezierCurveTo(120, -440, 180, -420, 200, -370);
+  g.bezierCurveTo(250, -300, 270, -180, 260, 0);
+  g.closePath();
+}
+function mahoraga(a, b) {
+  const ms = summonTime("maho"), e = Math.min(1, ms / 1500), ease = 1 - Math.pow(1 - e, 3);
+  setGrade("rgba(40,30,70,.6)", .9, .15);
+  const base = H + M * .02, s = M / 920, x = W / 2;
+  // 影子湧出
+  inkPool(x, base - M * .02, W * .45, M * .12);
+  const rise = (1 - ease) * 640;
+  for (const g of [D, L]) { g.save(); g.beginPath(); g.rect(0, 0, W, base - M * .03); g.clip(); g.translate(x, base + rise * s); g.scale(s, s); }
+  mahoragaPath(D); D.fillStyle = "rgba(8,8,12,.55)"; D.fill();
+  mahoragaPath(L); L.fillStyle = "rgba(210,210,225,.08)"; L.fill();
+  L.strokeStyle = "rgba(230,230,245,.9)"; L.lineWidth = 4; L.stroke();
+  // 頭上的翅膀
+  for (const sx of [-1, 1]) {
+    L.beginPath(); L.moveTo(sx * 40, -560); L.quadraticCurveTo(sx * 120, -620, sx * 150, -560); L.quadraticCurveTo(sx * 100, -575, sx * 45, -530); L.closePath();
+    L.fillStyle = "rgba(230,230,245,.5)"; L.fill(); L.stroke();
+  }
+  for (const g of [D, L]) g.restore();
+  // 法輪：每 1.6 秒轉一格（適應）
+  const step = Math.floor(ms / 1600), frac = Math.min(1, (ms % 1600) / 250);
+  const rot = (step + (1 - Math.pow(1 - frac, 3))) * TAU / 8;
+  const wy = base + (rise - 700) * s;
+  if (ms > 900) {
+    wheel(x, wy, 120 * s, rot);
+    glow(L, x, wy, 200 * s, [[0, "rgba(255,240,200,.3)"], [1, "rgba(0,0,0,0)"]]);
+    if (frac < .2 && step > 0) { ring(x, wy, "#fe9", 14, 4); shake = Math.max(shake, 10); }
+  }
+  if (ms < 120) { shake = 30; whiteout = 6; }
 }
 
 // ================= 粒子 / 衝擊波 / 斬擊 =================
@@ -988,7 +1077,11 @@ function loop() {
     if (both("peace")) { infiniteVoid(); say("領域展開・無量空處", "#cdf", "五條悟"); }
     else if (both("horns")) { shrine(); say("領域展開・伏魔御廚子", "#f33", "兩面宿儺"); }
     else if (both("shaka")) { chimeraGarden(); say("領域展開・嵌合暗翳庭", "#8af", "伏黑惠"); }
-    else if (close && A.speed < M * .05 && B.speed < M * .05 && ["fist", "open"].includes(A.pose) && ["fist", "open"].includes(B.pose)) {
+    else if (both("open") && dist(A.pts[4], B.pts[4]) < dist(A.pts[0], A.pts[9]) * 1.6 && dist(A.c, B.c) < dist(A.pts[0], A.pts[9]) * 3.2) { nue(A, B); say("十種影法術・鵺", "#9cf", "伏黑惠"); }
+    else if (close && ((A.pose === "fist" && B.pose === "open") || (A.pose === "open" && B.pose === "fist"))) {
+      mahoraga(A, B); say("八握劍異戒神將・魔虛羅", "#eed", "伏黑惠");
+    }
+    else if (close && A.speed < M * .05 && B.speed < M * .05 && both("fist")) {
       piercingBlood(A, B); say("赤血操術・穿血", "#f33", "脹相");
     }
     if (labels.length) hands.forEach(h => used.add(h.key));
@@ -1007,7 +1100,6 @@ function loop() {
         say("術式反轉「赫」", "#f44", "五條悟"); break;
       case "peace":
         if (h.speed > M * .06 && h.held > 4) { cleave(h); say("解", "#f33", "兩面宿儺"); }
-        else { ratio(h); say("十劃咒法", "#fd6", "七海建人"); }
         break;
       case "horns": cursedSpirits(h.c); say("咒靈操術", "#b6f", "夏油傑"); break;
       case "shaka": divineDogs(h.c); say("十種影法術・玉犬", "#8af", "伏黑惠"); break;
