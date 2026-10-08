@@ -109,6 +109,7 @@ function detectFilter() {
   } catch (e) { return false; }
 }
 const tmpC = document.createElement("canvas"), TM = tmpC.getContext("2d");
+const blindC = document.createElement("canvas"), BX = blindC.getContext("2d");   // 眼罩＋頭髮
 const ringC = document.createElement("canvas"), RG = ringC.getContext("2d");
 const fillC = document.createElement("canvas"), FL = fillC.getContext("2d");
 const tinyC = document.createElement("canvas"), TY = tinyC.getContext("2d");
@@ -129,8 +130,8 @@ const nameEl = document.getElementById("name"), userEl = document.getElementById
 const statusEl = document.getElementById("status");
 let W, H, M;
 function resize() {
-  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = ringC.width = fillC.width = innerWidth;
-  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = ringC.height = fillC.height = innerHeight;
+  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = ringC.width = fillC.width = blindC.width = innerWidth;
+  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = ringC.height = fillC.height = blindC.height = innerHeight;
   tinyC.width = Math.ceil(W / 8); tinyC.height = Math.ceil(H / 8); tiny2C.width = Math.ceil(W / 20); tiny2C.height = Math.ceil(H / 20);
   bloomC.width = Math.ceil(W / 2); bloomC.height = Math.ceil(H / 2);
   M = Math.min(W, H);
@@ -193,8 +194,11 @@ function resample(pts, n) {
   return out;
 }
 function drawBlindfold() {
-  blind.alpha += ((blind.want && blind.face ? 1 : 0) - blind.alpha) * .2;
-  if (blind.alpha < .02 || !blind.face) return;
+  const target = blind.want && blind.face ? 1 : 0;
+  blind.alpha += (target - blind.alpha) * (target ? .25 : .45);   // 淡出比淡入快
+  if (blind.alpha < .03 || !blind.face) { blind.alpha = blind.face ? blind.alpha : 0; return; }
+  // 眼罩和頭髮先畫在同一張圖層，再整張一起淡入淡出，兩者才會同時出現、同時消失
+  BX.clearRect(0, 0, W, H);
   const f = blind.face;
   const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   const eA = mid(f[33], f[133]), eB = mid(f[362], f[263]);
@@ -231,55 +235,55 @@ function drawBlindfold() {
   for (let i = N - 1; i >= 0; i--) band.lineTo(BOT[i].x, BOT[i].y);
   band.closePath();
 
-  ctx.save(); ctx.globalAlpha = blind.alpha;
+  BX.save();
   // 後面的白髮
   if (ART) {
     const hr = ART.hair, tp = Q(0, .12), wpx = dist(TOP[0], TOP[N - 1]), sc = wpx * 1.2 / hr.w;
-    ctx.save(); ctx.translate(tp.x, tp.y); ctx.rotate(Math.atan2(uy, ux)); ctx.scale(sc, sc);
-    ctx.drawImage(hr.img, -hr.ox, -hr.oy);
-    ctx.restore();
+    BX.save(); BX.translate(tp.x, tp.y); BX.rotate(Math.atan2(uy, ux)); BX.scale(sc, sc);
+    BX.drawImage(hr.img, -hr.ox, -hr.oy);
+    BX.restore();
   }
   // 底色：深藍黑，兩側（繞到頭後面）更暗
-  ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = h * .4; ctx.shadowOffsetY = h * .12;
+  BX.shadowColor = "rgba(0,0,0,.6)"; BX.shadowBlur = h * .4; BX.shadowOffsetY = h * .12;
   const l = Q(-1, .5), r = Q(1, .5);
-  let g = ctx.createLinearGradient(l.x, l.y, r.x, r.y);
+  let g = BX.createLinearGradient(l.x, l.y, r.x, r.y);
   g.addColorStop(0, "#07080e"); g.addColorStop(.2, "#1e2334"); g.addColorStop(.5, "#282e44"); g.addColorStop(.8, "#1e2334"); g.addColorStop(1, "#07080e");
-  ctx.fillStyle = g; ctx.fill(band);
-  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-  ctx.save(); ctx.clip(band);
-  if (ART) { ctx.globalAlpha = blind.alpha * .35; ctx.fillStyle = ctx.createPattern(ART.cloth, "repeat"); ctx.fill(band); ctx.globalAlpha = blind.alpha; }
+  BX.fillStyle = g; BX.fill(band);
+  BX.shadowBlur = 0; BX.shadowOffsetY = 0;
+  BX.save(); BX.clip(band);
+  if (ART) { BX.globalAlpha = .35; BX.fillStyle = BX.createPattern(ART.cloth, "repeat"); BX.fill(band); BX.globalAlpha = 1; }
   // 暗面（眼窩處布料凹下去）
-  ctx.fillStyle = "rgba(4,5,10,.7)";
-  for (const s of [-1, 1]) ctx.fill(poly([[s * .2, .55], [s * .5, .45], [s * .8, .52], [s * .88, 1.05], [s * .25, 1.05]]));
-  ctx.fill(poly([[-.07, .4], [.07, .4], [.04, 1.05], [-.04, 1.05]]));
+  BX.fillStyle = "rgba(4,5,10,.7)";
+  for (const s of [-1, 1]) BX.fill(poly([[s * .2, .55], [s * .5, .45], [s * .8, .52], [s * .88, 1.05], [s * .25, 1.05]]));
+  BX.fill(poly([[-.07, .4], [.07, .4], [.04, 1.05], [-.04, 1.05]]));
   // 中間調亮面（大片反光）
-  ctx.fillStyle = "rgba(92,102,138,.9)";
-  ctx.fill(streak(-.88, .3, -.3, .2, .09));
-  ctx.fill(streak(-.8, .36, -.42, .4, .05));
-  ctx.fill(streak(.3, .22, .86, .28, .08));
-  ctx.fill(streak(-.16, .2, .14, .18, .06));
+  BX.fillStyle = "rgba(92,102,138,.9)";
+  BX.fill(streak(-.88, .3, -.3, .2, .09));
+  BX.fill(streak(-.8, .36, -.42, .4, .05));
+  BX.fill(streak(.3, .22, .86, .28, .08));
+  BX.fill(streak(-.16, .2, .14, .18, .06));
   // 鼻樑處布料被擠出來的斜向皺褶
-  ctx.fillStyle = "rgba(105,114,146,.95)";
-  ctx.fill(streak(-.1, .3, -.3, .92, .045));
-  ctx.fill(streak(.12, .32, .3, .9, .04));
-  ctx.fill(streak(-.42, .52, -.7, .8, .03));
-  ctx.fill(streak(.45, .54, .72, .76, .03));
+  BX.fillStyle = "rgba(105,114,146,.95)";
+  BX.fill(streak(-.1, .3, -.3, .92, .045));
+  BX.fill(streak(.12, .32, .3, .9, .04));
+  BX.fill(streak(-.42, .52, -.7, .8, .03));
+  BX.fill(streak(.45, .54, .72, .76, .03));
   // 最亮的高光
-  ctx.fillStyle = "rgba(180,190,220,.95)";
-  ctx.fill(streak(-.14, .34, -.24, .62, .016));
-  ctx.fill(streak(.15, .38, .23, .6, .014));
-  ctx.fill(streak(-.75, .22, -.5, .18, .012));
-  ctx.fill(streak(.45, .2, .7, .17, .01));
+  BX.fillStyle = "rgba(180,190,220,.95)";
+  BX.fill(streak(-.14, .34, -.24, .62, .016));
+  BX.fill(streak(.15, .38, .23, .6, .014));
+  BX.fill(streak(-.75, .22, -.5, .18, .012));
+  BX.fill(streak(.45, .2, .7, .17, .01));
   // 皺褶暗線
-  ctx.strokeStyle = "rgba(3,4,8,.95)"; ctx.lineWidth = Math.max(1, h * .04); ctx.lineCap = "round";
+  BX.strokeStyle = "rgba(3,4,8,.95)"; BX.lineWidth = Math.max(1, h * .04); BX.lineCap = "round";
   for (const [u0, v0, u1, v1, uc, vc] of [[-.02, .2, -.2, .98, -.02, .6], [.04, .22, .2, .95, .06, .6], [-.95, .55, -.45, .62, -.7, .5], [.5, .6, .95, .5, .72, .48], [-.5, .3, -.18, .45, -.35, .32]]) {
     const a0 = Q(u0, v0), a1 = Q(u1, v1), ac = Q(uc, vc);
-    ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.quadraticCurveTo(ac.x, ac.y, a1.x, a1.y); ctx.stroke();
+    BX.beginPath(); BX.moveTo(a0.x, a0.y); BX.quadraticCurveTo(ac.x, ac.y, a1.x, a1.y); BX.stroke();
   }
-  ctx.restore();
+  BX.restore();
   // 描線
-  ctx.strokeStyle = "rgba(0,0,0,.95)"; ctx.lineWidth = Math.max(1.5, h * .055); ctx.lineJoin = "round";
-  ctx.stroke(band);
+  BX.strokeStyle = "rgba(0,0,0,.95)"; BX.lineWidth = Math.max(1.5, h * .055); BX.lineJoin = "round";
+  BX.stroke(band);
   // 前面垂下來、蓋過眼罩上緣的髮束
   for (const [u, du, len, w] of [[-.78, .14, .3, .028], [-.62, .12, .42, .024], [-.44, .08, .26, .02], [.4, -.06, .3, .02], [.58, -.1, .44, .024], [.76, -.14, .32, .028]]) {
     const pts = [], M2 = 12;
@@ -289,12 +293,13 @@ function drawBlindfold() {
     for (let i = pts.length - 1; i >= 0; i--) { const [uu, v, ww] = pts[i]; const q = Q(uu + ww, v); hp.lineTo(q.x, q.y); }
     hp.closePath();
     const q0 = Q(u, -.8), q1 = Q(u + du, len);
-    g = ctx.createLinearGradient(q0.x, q0.y, q1.x, q1.y);
+    g = BX.createLinearGradient(q0.x, q0.y, q1.x, q1.y);
     g.addColorStop(0, "#ffffff"); g.addColorStop(.6, "#e4e8f4"); g.addColorStop(1, "#aab2cc");
-    ctx.fillStyle = g; ctx.fill(hp);
-    ctx.strokeStyle = "rgba(60,66,96,.85)"; ctx.lineWidth = Math.max(1, h * .025); ctx.stroke(hp);
+    BX.fillStyle = g; BX.fill(hp);
+    BX.strokeStyle = "rgba(60,66,96,.85)"; BX.lineWidth = Math.max(1, h * .025); BX.stroke(hp);
   }
-  ctx.restore();
+  BX.restore();
+  ctx.save(); ctx.globalAlpha = blind.alpha; ctx.drawImage(blindC, 0, 0); ctx.restore();
 }
 
 // ================= 座標 =================
