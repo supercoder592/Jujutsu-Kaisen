@@ -18,6 +18,7 @@
   #user { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); font-size: 2.6vmin; letter-spacing: .6em;
     opacity: 0; transition: opacity .3s; z-index: 3; color: #ddd; text-shadow: 0 0 10px #000; }
   #user.on { opacity: .85; }
+  #hud { position: absolute; right: 14px; bottom: 12px; font: 12px system-ui, sans-serif; color: #fff; opacity: .45; z-index: 4; letter-spacing: .1em; }
   .bar { position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height .4s; z-index: 2; }
   #barT { top: 0; } #barB { bottom: 0; }
   body.cine .bar { height: 7vh; }
@@ -47,6 +48,7 @@
 <div class="bar" id="barT"></div><div class="bar" id="barB"></div>
 <div id="user"></div>
 <div id="name"></div>
+<div id="hud"></div>
 <div id="guide">
   <i>五條悟</i><br>
   <b>手張開</b> 蒼　<b>伸食指</b> 赫<br>
@@ -55,7 +57,7 @@
   <i>虎杖悠仁</i><br>
   <b>握拳</b> 紅色咒力包覆拳頭　<b>快速出拳</b> 黑閃（雙手可同時）<br>
   <i>脹相</i><br>
-  <b>雙手握在一起往前推</b> 赤血操術・穿血<br>
+  <b>雙手握拳併在一起、指向側邊</b> 赤血操術・穿血（水平射出）<br>
   <i>伏黑惠</i><br>
   <b>拇指 + 小指</b> 玉犬　<b>雙手</b> 嵌合暗翳庭<br>
   <i>夏油傑</i><br>
@@ -82,6 +84,7 @@ const ctx = cv.getContext("2d");
 const lightC = document.createElement("canvas"), L = lightC.getContext("2d");   // 發光層（加亮 + bloom）
 const darkC = document.createElement("canvas"), D = darkC.getContext("2d");     // 黑色層（影子、黑閃）
 const gooC = document.createElement("canvas"), G = gooC.getContext("2d");    // 咒力液體（metaball）
+const hud = document.getElementById("hud");
 const nameEl = document.getElementById("name"), userEl = document.getElementById("user");
 const statusEl = document.getElementById("status");
 let W, H, M;
@@ -103,7 +106,8 @@ document.getElementById("btn").onclick = async () => {
         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
         delegate: "GPU"
       },
-      runningMode: "VIDEO", numHands: 2
+      runningMode: "VIDEO", numHands: 2,
+      minHandDetectionConfidence: .6, minHandPresenceConfidence: .6, minTrackingConfidence: .5
     });
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
     await video.play();
@@ -121,20 +125,39 @@ function toScreen(p) { const c = cover(); return { x: W - (p.x * c.vw * c.s + c.
 
 // ================= 手勢 =================
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// 用關節角度判斷手指伸直/彎曲（不受手的方向影響）。判斷不確定時回傳 "none"，不出特效。
+function bend(lm, a, b, c, d) {
+  const v1 = { x: lm[b].x - lm[a].x, y: lm[b].y - lm[a].y, z: lm[b].z - lm[a].z };
+  const v2 = { x: lm[d].x - lm[c].x, y: lm[d].y - lm[c].y, z: lm[d].z - lm[c].z };
+  const n = Math.hypot(v1.x, v1.y, v1.z) * Math.hypot(v2.x, v2.y, v2.z) || 1;
+  return (v1.x * v2.x + v1.y * v2.y + v1.z * v2.z) / n;   // 1 = 完全伸直
+}
+function fingerState(lm, mcp, pip, tip) {
+  const cs = bend(lm, mcp, pip, pip, tip);
+  const far = dist(lm[tip], lm[0]) > dist(lm[pip], lm[0]);
+  if (cs > .75 && far) return 1;
+  if (cs < .35 || !far) return 0;
+  return -1;                                              // 不確定
+}
 function pose(lm) {
-  const w = lm[0], ext = (tip, pip) => dist(lm[tip], w) > dist(lm[pip], w) * 1.15;
-  const t = dist(lm[4], lm[17]) > dist(lm[3], lm[17]) * 1.1 && dist(lm[4], lm[5]) > dist(lm[0], lm[5]) * 0.45;
-  const i = ext(8, 6), m = ext(12, 10), r = ext(16, 14), p = ext(20, 18);
-  const n = [i, m, r, p].filter(Boolean).length;
+  const palm = dist(lm[0], lm[9]) || 1;
+  const f = [fingerState(lm, 5, 6, 8), fingerState(lm, 9, 10, 12), fingerState(lm, 13, 14, 16), fingerState(lm, 17, 18, 20)];
+  if (f.includes(-1)) return "none";
+  const [i, m, r, p] = f.map(Boolean);
+  const thumbStraight = bend(lm, 2, 3, 3, 4) > .8;
+  const thumbOut = dist(lm[4], lm[5]) > palm * .6 && dist(lm[4], lm[9]) > palm * .75;
+  const tOut = thumbStraight && thumbOut, tIn = dist(lm[4], lm[9]) < palm * .7 || dist(lm[4], lm[6]) < palm * .45;
+  const n = f.filter(Boolean).length;
   if (n === 4) return "open";
   if (i && m && !r && !p) return "peace";
   if (i && !m && !r && p) return "horns";
-  if (!i && !m && !r && p && t) return "shaka";
+  if (!i && !m && !r && p && tOut) return "shaka";
   if (i && !m && !r && !p) return "point";
-  if (n === 0 && t && dist(lm[4], lm[0]) > dist(lm[5], lm[0]) * 1.3) return "thumb";
-  if (n === 0) return "fist";
+  if (n === 0 && tOut && dist(lm[4], lm[0]) > palm * 1.1) return "thumb";
+  if (n === 0 && !tOut) return "fist";
   return "none";
 }
+const POSE_NAME = { open: "張開", point: "食指", peace: "YA", horns: "食指+小指", shaka: "拇指+小指", thumb: "拇指", fist: "握拳", none: "—" };
 
 // ================= 工具 =================
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -480,7 +503,7 @@ function piercingBlood(a, b) {
   const c = { x: (a.pts[0].x + b.pts[0].x + a.pts[9].x + b.pts[9].x) / 4, y: (a.pts[0].y + b.pts[0].y + a.pts[9].y + b.pts[9].y) / 4 };
   // 方向：手腕 → 指根，兩手平均（雙手往前推的方向）
   let dx = (a.pts[9].x - a.pts[0].x) + (b.pts[9].x - b.pts[0].x), dy = (a.pts[9].y - a.pts[0].y) + (b.pts[9].y - b.pts[0].y);
-  const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
+  dx = dx < 0 ? -1 : 1; dy = 0;                            // 血槍永遠水平射出，往手指指的那一側
   choCharge = Math.min(1, choCharge + .06);
   const len = Math.hypot(W, H) * .8 * choCharge, w = M * .022 * (1 + Math.sin(t * .9) * .2);
   const ang = Math.atan2(dy, dx);
@@ -704,20 +727,42 @@ function detect() {
   lastT = video.currentTime;
   const res = landmarker.detectForVideo(video, performance.now());
   const seen = new Set();
-  hands = res.landmarks.map((lm, i) => {
-    let key = res.handednesses?.[i]?.[0]?.categoryName || "h" + i;
+  const out = [];
+  res.landmarks.forEach((raw, i) => {
+    const hd = res.handednesses?.[i]?.[0];
+    if (hd && hd.score < .6) return;                       // 信心太低的手直接忽略
+    let key = hd?.categoryName || "h" + i;
     if (seen.has(key)) key += i; seen.add(key);
+    const tr = track[key] || (track[key] = { votes: [], pose: "none", hist: [], held: 0, sm: null, missing: 0 });
+    tr.missing = 0;
+    // 平滑關鍵點：移動慢時平滑多一點（去抖），移動快時跟得緊
+    if (!tr.sm) tr.sm = raw.map(p => ({ ...p }));
+    const move = dist(raw[0], tr.sm[0]);
+    const k = Math.min(.9, .35 + move * 12);
+    tr.sm.forEach((p, j) => { p.x += (raw[j].x - p.x) * k; p.y += (raw[j].y - p.y) * k; p.z += (raw[j].z - p.z) * k; });
+    const lm = tr.sm;
+    // 投票：最近 7 幀裡同一手勢至少 5 次才切換（握拳 3 次，出拳要快）
+    tr.votes.push(pose(lm)); if (tr.votes.length > 7) tr.votes.shift();
+    const cnt = {}; tr.votes.forEach(v => cnt[v] = (cnt[v] || 0) + 1);
+    const [best, bc] = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+    const need = best === "fist" ? 3 : 5;
+    if (bc >= need && best !== tr.pose) { tr.pose = best; tr.held = 0; } else tr.held++;
     const pts = lm.map(toScreen);
     const c = { x: (pts[0].x + pts[9].x) / 2, y: (pts[0].y + pts[9].y) / 2 };
-    const tr = track[key] || (track[key] = { raw: "", n: 0, pose: "none", c, hist: [] });
-    const raw = pose(lm);
-    if (raw === tr.raw) tr.n++; else { tr.raw = raw; tr.n = 0; }
-    if (tr.n >= 3 || raw === "fist") tr.pose = raw;
     tr.hist.push(c); if (tr.hist.length > 4) tr.hist.shift();
     const prevC = tr.hist[0];
     const speed = dist(c, prevC) / Math.max(1, tr.hist.length - 1);
-    return { key, lm, pts, c, prevC, speed, pose: tr.pose };
+    tr.last = { key, lm, pts, c, prevC, speed, pose: tr.pose, held: tr.held };
+    out.push(tr.last);
   });
+  // 短暫偵測不到（幾幀）時沿用上一次，避免特效一閃一閃
+  for (const [key, tr] of Object.entries(track)) {
+    if (seen.has(key) || !tr.last) continue;
+    if (++tr.missing <= 5 && out.length < 2) out.push({ ...tr.last, speed: 0 });
+    else if (tr.missing > 5) { tr.votes = []; tr.pose = "none"; tr.sm = null; tr.hist = []; tr.last = null; }
+  }
+  hands = out;
+  hud.textContent = hands.length ? hands.map(h => POSE_NAME[h.pose]).join("　") : "偵測不到手";
 }
 
 function loop() {
@@ -758,7 +803,7 @@ function loop() {
     if (both("peace")) { infiniteVoid(); say("領域展開・無量空處", "#cdf", "五條悟"); }
     else if (both("horns")) { shrine(); say("領域展開・伏魔御廚子", "#f33", "兩面宿儺"); }
     else if (both("shaka")) { chimeraGarden(); say("領域展開・嵌合暗翳庭", "#8af", "伏黑惠"); }
-    else if (close && A.speed < M * .05 && B.speed < M * .05 && !["peace", "horns", "shaka", "point"].includes(A.pose) && !["peace", "horns", "shaka", "point"].includes(B.pose)) {
+    else if (close && A.speed < M * .05 && B.speed < M * .05 && ["fist", "open"].includes(A.pose) && ["fist", "open"].includes(B.pose)) {
       piercingBlood(A, B); say("赤血操術・穿血", "#f33", "脹相");
     }
     if (labels.length) hands.forEach(h => used.add(h.key));
@@ -770,7 +815,7 @@ function loop() {
     if (used.has(h.key)) continue;
     switch (h.pose) {
       case "open":
-        if (h.speed > M * .06) { cleave(h); say("解", "#f33", "兩面宿儺"); }
+        if (h.speed > M * .06 && h.held > 4) { cleave(h); say("解", "#f33", "兩面宿儺"); }
         else { blue(h.c); say("術式順轉「蒼」", "#4cf", "五條悟"); }
         break;
       case "point": red(h.pts[8]); say("術式反轉「赫」", "#f44", "五條悟"); break;
@@ -779,7 +824,7 @@ function loop() {
       case "shaka": divineDogs(h.c); say("十種影法術・玉犬", "#8af", "伏黑惠"); break;
       case "thumb": fuga(h); say("「開」", "#fa3", "兩面宿儺"); break;
       case "fist":
-        if (h.speed > M * .07 && !flashes[h.key]) { blackFlash(h); cursedAura(h, 2.2); say("黑閃", "#f22", "虎杖悠仁"); }
+        if (h.speed > M * .07 && h.held > 4 && !flashes[h.key]) { blackFlash(h); cursedAura(h, 2.2); say("黑閃", "#f22", "虎杖悠仁"); }
         else { cursedAura(h); say("咒力", "#f55", "虎杖悠仁"); }
         break;
     }
