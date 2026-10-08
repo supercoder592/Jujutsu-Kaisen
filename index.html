@@ -72,8 +72,8 @@
 <div id="hud"></div>
 <div id="guide">
   <i>五條悟</i>（使用時自動戴上眼罩）<br>
-  <b>手張開</b> 蒼　<b>伸食指</b> 赫　（<b>揮手</b> 發射）<br>
-  <b>拇指和食指捏在一起</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>手指彈開或揮出</b> 發射<br>
+  <b>食指＋中指</b> 蒼　<b>伸食指</b> 赫　（<b>揮手</b>或<b>往鏡頭推</b> 發射）<br>
+  <b>拇指和食指捏在一起</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>手指彈開、揮出或往鏡頭推</b> 發射<br>
   <b>雙手比 YA</b> 領域展開・無量空處<br>
   <i>虎杖悠仁</i><br>
   <b>握拳</b> 紅色咒力包覆拳頭　<b>出拳</b>（往旁邊或往鏡頭打）黑閃，雙手可同時<br>
@@ -86,11 +86,11 @@
   <i>夏油傑</i><br>
   <b>食指 + 小指</b> 咒靈操術<br>
   <i>兩面宿儺</i><br>
-  <b>比 YA 快速揮砍</b> 解　<b>只伸拇指</b> 「開」（<b>揮手</b> 發射）<br>
+  <b>手張開快速揮砍</b> 解　<b>只伸拇指</b> 「開」（<b>揮手</b> 發射）<br>
   <b>雙手 食指 + 小指</b> 領域展開・伏魔御廚子<br>
   <i>多人：最多 4 隻手，每個人各自用術式</i><br>
   <i>下方圓鈕：倒數 3 秒拍照 → 自動去背 → 選背景 → 存到相簿</i><br>
-  <i>兩隻手可以同時用不同術式・按 H 關閉</i>
+  <i>同一個人一次只能用一個術式（咒力、黑閃可以雙手同時）・按 H 關閉</i>
 </div>
 <button id="shot" title="拍照（倒數 3 秒）"></button>
 <div id="count"></div>
@@ -847,8 +847,12 @@ function updateProjs() {
 }
 function tryLaunch(h, type, from) {
   projCool[h.key] = (projCool[h.key] || 0) - 1;
-  if (h.speed > M * .06 && h.held > 8 && projCool[h.key] <= 0) {
-    launch(type, from.x, from.y, h.c.x - h.prevC.x, h.c.y - h.prevC.y);
+  const swipe = h.speed > M * .045, push = h.thrust;
+  if ((swipe || push) && h.held > 4 && projCool[h.key] <= 0) {
+    // 揮手：往揮的方向射；往鏡頭推：往手指指的方向射
+    let dx = h.c.x - h.prevC.x, dy = h.c.y - h.prevC.y;
+    if (!swipe) { const tip = h.pose === "peace" ? { x: (h.pts[8].x + h.pts[12].x) / 2, y: (h.pts[8].y + h.pts[12].y) / 2 } : h.pts[8]; dx = tip.x - h.pts[0].x; dy = tip.y - h.pts[0].y; }
+    launch(type, from.x, from.y, dx, dy);
     projCool[h.key] = 25;
     return true;
   }
@@ -1618,6 +1622,7 @@ function composite() {
 
 // ================= 主迴圈 =================
 let handSerial = 0;
+const activeHand = {};   // 每個人目前正在用術式的那隻手
 const track = {};   // 依左右手記錄：穩定手勢、上一幀位置
 let lastT = -1, hands = [];
 function detect() {
@@ -1671,13 +1676,16 @@ function detect() {
     const moved = dist(m0, c), grow = palmRaw / Math.max(1, m0.s);
     const punch = now - (tr.lastFist || -1e9) < 700 && now > (tr.punchCool || 0) && (moved > M * .11 || grow > 1.2);
     if (punch) tr.punchCool = now + 600;
-    tr.last = { key, lm, pts, c, prevC, speed, pose: tr.pose, held: tr.held, punch };
+    // 往鏡頭推：手在畫面上突然變大（發射五條悟的術式用）
+    const thrust = !punch && grow > 1.15 && now > (tr.thrustCool || 0);
+    if (thrust) tr.thrustCool = now + 500;
+    tr.last = { key, lm, pts, c, prevC, speed, pose: tr.pose, held: tr.held, punch, thrust };
     out.push(tr.last);
   });
   // 短暫偵測不到（幾幀）時沿用上一次，避免特效一閃一閃
   for (const [key, tr] of Object.entries(track)) {
     if (seen.has(key) || !tr.last) continue;
-    if (++tr.missing <= 5 && out.length < 4) out.push({ ...tr.last, speed: 0, punch: false });
+    if (++tr.missing <= 5 && out.length < 4) out.push({ ...tr.last, speed: 0, punch: false, thrust: false });
     else if (tr.missing > 5) delete track[key];
   }
   hands = out;
@@ -1711,7 +1719,7 @@ function loop() {
     const released = hh && hh.pose !== "pinch" && hh.pose !== "none";
     let dir = null;
     if (hh) { const dx = hh.pts[8].x - hh.pts[5].x, dy = hh.pts[8].y - hh.pts[5].y, n = Math.hypot(dx, dy) || 1; dir = { x: dx / n, y: dy / n }; }
-    updatePurple(hh && pinchPt(hh), released, dir);
+    updatePurple(hh && pinchPt(hh), released || (hh && hh.thrust), dir);
     if (hh) gojoPts.push(hh.c);
     if (hh) used.add(hh.key);
     say("虛式「茈」", "#c8f", "五條悟");
@@ -1730,7 +1738,7 @@ function loop() {
   for (let i = 0; i < free.length; i++) for (let j = i + 1; j < free.length; j++) cand.push([dist(free[i].c, free[j].c), free[i], free[j]]);
   cand.sort((x, y) => x[0] - y[0]);
   const paired = new Set();
-  for (const [d, A, B] of cand) if (d < M * .6 && !paired.has(A.key) && !paired.has(B.key)) { pairs.push([A, B]); paired.add(A.key); paired.add(B.key); }
+  for (const [d, A, B] of cand) if ((d < M * .6 || free.length === 2) && !paired.has(A.key) && !paired.has(B.key)) { pairs.push([A, B]); paired.add(A.key); paired.add(B.key); }
   for (const [A, B] of pairs) {
     const before = labels.length, close = dist(A.c, B.c) < M * .2;
     const both = p => A.pose === p && B.pose === p && A.held > 5 && B.held > 5;
@@ -1750,28 +1758,53 @@ function loop() {
   }
   if (!labels.some(l => l.who === "脹相")) choCharge = 0;
 
-  // --- 單手（兩隻手各自獨立）---
-  for (const h of hands) {
+  // --- 單手 ---
+  // 同一個人一次只能用一個術式（咒力和黑閃除外，雙手可以同時）。
+  // 誰是同一個人：只有兩隻手時就是同一人；更多隻手時，把最近的左右手配成一個人
+  const personOf = {};
+  if (hands.length <= 2) hands.forEach(h => personOf[h.key] = "p0");
+  else {
+    const cand2 = [];
+    for (let i = 0; i < hands.length; i++) for (let j = i + 1; j < hands.length; j++)
+      if (hands[i].key[0] !== hands[j].key[0]) cand2.push([dist(hands[i].c, hands[j].c), hands[i], hands[j]]);
+    cand2.sort((x, y) => x[0] - y[0]);
+    let n = 0;
+    for (const [, A, B] of cand2) if (!personOf[A.key] && !personOf[B.key]) { personOf[A.key] = personOf[B.key] = "p" + n++; }
+    hands.forEach(h => personOf[h.key] = personOf[h.key] || "p" + n++);
+  }
+  const busy = new Set();
+  for (const h of hands) if (used.has(h.key) && !flashes[h.key]) busy.add(personOf[h.key]);   // 雙手術式、茈佔用的人
+  // 上一幀正在用術式的手優先，其次是手勢維持比較久的
+  const order = [...hands].sort((x, y) => (activeHand[personOf[y.key]] === y.key) - (activeHand[personOf[x.key]] === x.key) || y.held - x.held);
+  for (const h of order) {
+    const pid = personOf[h.key];
     if (h.punch && !flashes[h.key] && !(P.state !== "idle" && h.key === P.key)) {      // 出拳 → 黑閃（優先於其他手勢）
       blackFlash(h); cursedAura(h, 2.2); say("黑閃", "#f22", "虎杖悠仁"); used.add(h.key); continue;
     }
     if (used.has(h.key)) continue;
+    if (h.pose === "fist") { cursedAura(h); say("咒力", "#f55", "虎杖悠仁"); continue; }
+    if (busy.has(pid)) continue;                               // 這個人另一隻手已經在用術式
+    let did = true;
     switch (h.pose) {
-      case "open":
-        gojoPts.push(h.c); if (!tryLaunch(h, "blue", h.c)) blue(h.c);
+      case "peace": {                                          // 蒼：食指＋中指，指尖上
+        const tip = { x: (h.pts[8].x + h.pts[12].x) / 2, y: (h.pts[8].y + h.pts[12].y) / 2 };
+        gojoPts.push(h.c); if (!tryLaunch(h, "blue", tip)) blue(tip);
         say("術式順轉「蒼」", "#4cf", "五條悟"); break;
+      }
       case "point":
         gojoPts.push(h.c); if (!tryLaunch(h, "red", h.pts[8])) red(h.pts[8]);
         say("術式反轉「赫」", "#f44", "五條悟"); break;
-      case "peace":
-        if (h.speed > M * .06 && h.held > 8) { cleave(h); say("解", "#f33", "兩面宿儺"); }
+      case "open":                                              // 解：手張開快速揮砍
+        if (h.speed > M * .06 && h.held > 6) { cleave(h); say("解", "#f33", "兩面宿儺"); } else did = false;
         break;
       case "horns": cursedSpirits(h.c); say("咒靈操術", "#b6f", "夏油傑"); break;
       case "shaka": divineDogs(h.c); say("十種影法術・玉犬", "#8af", "伏黑惠"); break;
       case "thumb": fuga(h); say("「開」", "#fa3", "兩面宿儺"); break;
-      case "fist": cursedAura(h); say("咒力", "#f55", "虎杖悠仁"); break;
+      default: did = false;
     }
+    if (did) { busy.add(pid); activeHand[pid] = h.key; }
   }
+  for (const pid of Object.keys(activeHand)) if (!hands.some(h => personOf[h.key] === pid && h.key === activeHand[pid])) delete activeHand[pid];
 
   updateProjs();
   const PROJ_NAME = { blue: ["術式順轉「蒼」", "#4cf", "五條悟"], red: ["術式反轉「赫」", "#f44", "五條悟"], fire: ["「開」", "#fa3", "兩面宿儺"] };
