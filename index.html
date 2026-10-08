@@ -72,9 +72,9 @@
 <div id="hud"></div>
 <div id="guide">
   <i>五條悟</i>（使用時自動戴上眼罩）<br>
-  <b>食指＋中指</b> 蒼　<b>伸食指</b> 赫　（<b>揮手</b>或<b>往鏡頭推</b> 發射）<br>
+  <b>食指中指併攏</b> 蒼　<b>伸食指</b> 赫　（<b>揮手</b>或<b>往鏡頭推</b> 發射）<br>
   <b>拇指和食指捏在一起</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>手指彈開、揮出或往鏡頭推</b> 發射<br>
-  <b>雙手比 YA</b> 領域展開・無量空處<br>
+  <b>雙手食指中指併攏</b> 領域展開・無量空處<br>
   <i>虎杖悠仁</i><br>
   <b>握拳</b> 紅色咒力包覆拳頭　<b>出拳</b>（往旁邊或往鏡頭打）黑閃，雙手可同時<br>
   <i>脹相</i><br>
@@ -86,7 +86,7 @@
   <i>夏油傑</i><br>
   <b>食指 + 小指</b> 咒靈操術<br>
   <i>兩面宿儺</i><br>
-  <b>手張開快速揮砍</b> 解　<b>只伸拇指</b> 「開」（<b>揮手</b> 發射）<br>
+  <b>食指中指張開成 V</b> 解（<b>揮動</b> 大斬擊）　<b>只伸拇指</b> 「開」（<b>揮手</b> 發射）<br>
   <b>雙手 食指 + 小指</b> 領域展開・伏魔御廚子<br>
   <i>多人：最多 4 隻手，每個人各自用術式</i><br>
   <i>下方圓鈕：倒數 3 秒拍照 → 自動去背 → 選背景 → 存到相簿</i><br>
@@ -639,7 +639,11 @@ function pose(lm) {
   const tOut = thumbStraight && thumbOut, tIn = dist(lm[4], lm[9]) < palm * .7 || dist(lm[4], lm[6]) < palm * .45;
   const n = f.filter(Boolean).length;
   if (n === 4) return "open";
-  if (i && m && !r && !p) return "peace";
+  if (i && m && !r && !p) {
+    // 食指中指：指尖距離和指根距離比較。併攏 → 蒼（two）；張開成 V → 解（peace）；介於中間不判斷
+    const gap = dist(lm[8], lm[12]) / (dist(lm[5], lm[9]) || 1);
+    return gap < 1.25 ? "two" : gap > 1.9 ? "peace" : "none";
+  }
   if (i && !m && !r && p) return "horns";
   if (!i && !m && !r && p && tOut) return "shaka";
   if (i && !m && !r && !p) return "point";
@@ -647,7 +651,7 @@ function pose(lm) {
   if (n === 0 && !tOut) return "fist";
   return "none";
 }
-const POSE_NAME = { open: "張開", point: "食指", peace: "YA", horns: "食指+小指", shaka: "拇指+小指", thumb: "拇指", fist: "握拳", pinch: "捏指", none: "—" };
+const POSE_NAME = { open: "張開", point: "食指", two: "食指中指併攏", peace: "V 字", horns: "食指+小指", shaka: "拇指+小指", thumb: "拇指", fist: "握拳", pinch: "捏指", none: "—" };
 
 // ================= 工具 =================
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -851,7 +855,7 @@ function tryLaunch(h, type, from) {
   if ((swipe || push) && h.held > 4 && projCool[h.key] <= 0) {
     // 揮手：往揮的方向射；往鏡頭推：往手指指的方向射
     let dx = h.c.x - h.prevC.x, dy = h.c.y - h.prevC.y;
-    if (!swipe) { const tip = h.pose === "peace" ? { x: (h.pts[8].x + h.pts[12].x) / 2, y: (h.pts[8].y + h.pts[12].y) / 2 } : h.pts[8]; dx = tip.x - h.pts[0].x; dy = tip.y - h.pts[0].y; }
+    if (!swipe) { const tip = h.pose === "two" ? { x: (h.pts[8].x + h.pts[12].x) / 2, y: (h.pts[8].y + h.pts[12].y) / 2 } : h.pts[8]; dx = tip.x - h.pts[0].x; dy = tip.y - h.pts[0].y; }
     launch(type, from.x, from.y, dx, dy);
     projCool[h.key] = 25;
     return true;
@@ -1307,6 +1311,23 @@ function cursedSpirits(c) {
 }
 
 // ================= 兩面宿儺 =================
+// 解（手不動）：沿著 V 字手指指的方向，不斷出現交叉的斬擊
+const aimCool = {};
+function dismantleAim(h) {
+  setGrade("rgba(160,0,0,.35)", .5, .4);
+  const tip = { x: (h.pts[8].x + h.pts[12].x) / 2, y: (h.pts[8].y + h.pts[12].y) / 2 };
+  let dx = tip.x - h.pts[0].x, dy = tip.y - h.pts[0].y; const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
+  glow(L, tip.x, tip.y, M * .05, [[0, "rgba(255,200,200,.8)"], [.4, "rgba(255,30,30,.4)"], [1, "rgba(0,0,0,0)"]]);
+  const now = performance.now();
+  if (now < (aimCool[h.key] || 0)) return;
+  aimCool[h.key] = now + 260;
+  const d = M * rnd(.08, .28), cx = tip.x + dx * d + rnd(-1, 1) * M * .05, cy = tip.y + dy * d + rnd(-1, 1) * M * .05;
+  for (const a of [rnd(-.9, -.5), rnd(.5, .9)]) {
+    const ca = Math.cos(Math.atan2(dy, dx) + a + Math.PI / 2), sa = Math.sin(Math.atan2(dy, dx) + a + Math.PI / 2), l = M * rnd(.12, .22);
+    slash(cx - ca * l, cy - sa * l, cx + ca * l, cy + sa * l, .9);
+  }
+  shake = Math.max(shake, 4);
+}
 function cleave(h) {   // 解：手揮過的軌跡留下斬擊
   setGrade("rgba(160,0,0,.4)", .6, .3);
   const a = h.prevC, b = h.c, dx = b.x - a.x, dy = b.y - a.y, n = Math.hypot(dx, dy) || 1;
@@ -1743,7 +1764,7 @@ function loop() {
     const before = labels.length, close = dist(A.c, B.c) < M * .2;
     const both = p => A.pose === p && B.pose === p && A.held > 5 && B.held > 5;
     const hc = { x: (A.c.x + B.c.x) / 2, y: (A.c.y + B.c.y) / 2 };
-    if (both("peace")) { infiniteVoid(hc); gojoPts.push(hc); say("領域展開・無量空處", "#cdf", "五條悟"); }
+    if (both("two")) { infiniteVoid(hc); gojoPts.push(hc); say("領域展開・無量空處", "#cdf", "五條悟"); }
     else if (both("horns")) { shrine(hc); say("領域展開・伏魔御廚子", "#f33", "兩面宿儺"); }
     else if (both("shaka")) { chimeraGarden(hc); say("領域展開・嵌合暗翳庭", "#8af", "伏黑惠"); }
     else if (both("open") && dist(A.pts[4], B.pts[4]) < dist(A.pts[0], A.pts[9]) * 1.6 && dist(A.c, B.c) < dist(A.pts[0], A.pts[9]) * 3.2) { nue(A, B); say("十種影法術・鵺", "#9cf", "伏黑惠"); }
@@ -1786,7 +1807,7 @@ function loop() {
     if (busy.has(pid)) continue;                               // 這個人另一隻手已經在用術式
     let did = true;
     switch (h.pose) {
-      case "peace": {                                          // 蒼：食指＋中指，指尖上
+      case "two": {                                            // 蒼：食指中指併攏，指尖上
         const tip = { x: (h.pts[8].x + h.pts[12].x) / 2, y: (h.pts[8].y + h.pts[12].y) / 2 };
         gojoPts.push(h.c); if (!tryLaunch(h, "blue", tip)) blue(tip);
         say("術式順轉「蒼」", "#4cf", "五條悟"); break;
@@ -1794,9 +1815,9 @@ function loop() {
       case "point":
         gojoPts.push(h.c); if (!tryLaunch(h, "red", h.pts[8])) red(h.pts[8]);
         say("術式反轉「赫」", "#f44", "五條悟"); break;
-      case "open":                                              // 解：手張開快速揮砍
-        if (h.speed > M * .06 && h.held > 6) { cleave(h); say("解", "#f33", "兩面宿儺"); } else did = false;
-        break;
+      case "peace":                                             // 解：食指中指張開成 V
+        if (h.speed > M * .05 && h.held > 4) cleave(h); else dismantleAim(h);
+        say("解", "#f33", "兩面宿儺"); break;
       case "horns": cursedSpirits(h.c); say("咒靈操術", "#b6f", "夏油傑"); break;
       case "shaka": divineDogs(h.c); say("十種影法術・玉犬", "#8af", "伏黑惠"); break;
       case "thumb": fuga(h); say("「開」", "#fa3", "兩面宿儺"); break;
