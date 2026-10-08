@@ -36,6 +36,24 @@
   #start h1 { font-size: 8vmin; margin: 0; letter-spacing: .3em; text-shadow: 0 0 30px #7a3cff; }
   #start button { font-size: 20px; padding: 12px 36px; border-radius: 30px; border: 0; background: #7a3cff; color: #fff; cursor: pointer; }
   #status { font-size: 14px; opacity: .7; font-family: system-ui, sans-serif; }
+  #shot { position: absolute; left: 50%; bottom: calc(7vh + 18px); transform: translateX(-50%); z-index: 5; width: 68px; height: 68px;
+    border-radius: 50%; border: 4px solid #fff; background: rgba(255,255,255,.18); backdrop-filter: blur(4px); cursor: pointer; display: none; }
+  #shot::after { content: ""; position: absolute; inset: 8px; border-radius: 50%; background: #fff; }
+  body.running #shot { display: block; }
+  #count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 6; pointer-events: none;
+    font: 900 28vmin/1 system-ui, sans-serif; color: #fff; text-shadow: 0 0 30px #000; opacity: 0; }
+  #editor { position: absolute; inset: 0; z-index: 20; background: #0b0b10; display: none; flex-direction: column; align-items: center;
+    gap: 12px; padding: 14px; box-sizing: border-box; font-family: system-ui, sans-serif; }
+  #editor.show { display: flex; }
+  #edStage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+  #photo { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 6px 30px #000; touch-action: none; cursor: grab; }
+  #bgs { display: flex; gap: 10px; overflow-x: auto; max-width: 100%; padding: 4px; }
+  #bgs canvas, #bgs img { width: 112px; height: 63px; object-fit: cover; border-radius: 6px; border: 3px solid transparent; cursor: pointer; flex: none; }
+  #bgs .sel { border-color: #9cf; }
+  #edBar { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .eb { padding: 10px 18px; border-radius: 22px; border: 0; background: #2a2a38; color: #fff; font-size: 15px; cursor: pointer; }
+  .eb.primary { background: #7a3cff; }
+  #edStatus { color: #aaa; font-size: 13px; min-height: 1em; }
 </style>
 </head>
 <body>
@@ -70,7 +88,23 @@
   <i>兩面宿儺</i><br>
   <b>比 YA 快速揮砍</b> 解　<b>只伸拇指</b> 「開」（<b>揮手</b> 發射）<br>
   <b>雙手 食指 + 小指</b> 領域展開・伏魔御廚子<br>
+  <i>多人：最多 4 隻手，每個人各自用術式</i><br>
+  <i>下方圓鈕：倒數 3 秒拍照 → 自動去背 → 選背景 → 存到相簿</i><br>
   <i>兩隻手可以同時用不同術式・按 H 關閉</i>
+</div>
+<button id="shot" title="拍照（倒數 3 秒）"></button>
+<div id="count"></div>
+<div id="editor">
+  <div id="edStage"><canvas id="photo"></canvas></div>
+  <div id="edStatus"></div>
+  <div id="bgs"></div>
+  <div id="edBar">
+    <label class="eb">＋ 上傳背景<input id="bgUpload" type="file" accept="image/*" multiple hidden></label>
+    <button class="eb" id="fxToggle">特效：開</button>
+    <button class="eb" id="resetPos">重設位置</button>
+    <button class="eb" id="retake">重拍</button>
+    <button class="eb primary" id="savePhoto">存到相簿</button>
+  </div>
 </div>
 <div id="start">
   <h1>咒術回戰</h1>
@@ -79,7 +113,7 @@
 </div>
 
 <script type="module">
-import { HandLandmarker, FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+import { HandLandmarker, FaceLandmarker, ImageSegmenter, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import { buildArt } from "./art.js";
 let ART = null;
 
@@ -110,6 +144,7 @@ function detectFilter() {
 }
 const tmpC = document.createElement("canvas"), TM = tmpC.getContext("2d");
 const blindC = document.createElement("canvas"), BX = blindC.getContext("2d");   // 眼罩＋頭髮
+const blindAllC = document.createElement("canvas"), BA = blindAllC.getContext("2d");   // 所有人的眼罩（拍照用）
 const ringC = document.createElement("canvas"), RG = ringC.getContext("2d");
 const fillC = document.createElement("canvas"), FL = fillC.getContext("2d");
 const tinyC = document.createElement("canvas"), TY = tinyC.getContext("2d");
@@ -130,8 +165,8 @@ const nameEl = document.getElementById("name"), userEl = document.getElementById
 const statusEl = document.getElementById("status");
 let W, H, M;
 function resize() {
-  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = ringC.width = fillC.width = blindC.width = innerWidth;
-  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = ringC.height = fillC.height = blindC.height = innerHeight;
+  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = ringC.width = fillC.width = blindC.width = blindAllC.width = innerWidth;
+  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = ringC.height = fillC.height = blindC.height = blindAllC.height = innerHeight;
   tinyC.width = Math.ceil(W / 8); tinyC.height = Math.ceil(H / 8); tiny2C.width = Math.ceil(W / 20); tiny2C.height = Math.ceil(H / 20);
   bloomC.width = Math.ceil(W / 2); bloomC.height = Math.ceil(H / 2);
   M = Math.min(W, H);
@@ -139,17 +174,17 @@ function resize() {
 addEventListener("resize", resize); resize();
 addEventListener("keydown", e => { if (e.key.toLowerCase() === "h") document.getElementById("guide").classList.toggle("show"); });
 
-let landmarker, faceLandmarker = null;
+let landmarker, faceLandmarker = null, visionFiles = null, segmenter = null;
 document.getElementById("btn").onclick = async () => {
   statusEl.textContent = "載入模型中…";
   try {
-    const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const fileset = visionFiles = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
     landmarker = await HandLandmarker.createFromOptions(fileset, {
       baseOptions: {
         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
         delegate: "GPU"
       },
-      runningMode: "VIDEO", numHands: 2,
+      runningMode: "VIDEO", numHands: 4,
       minHandDetectionConfidence: .75, minHandPresenceConfidence: .75, minTrackingConfidence: .6
     });
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
@@ -157,6 +192,7 @@ document.getElementById("btn").onclick = async () => {
     FILTER_OK = detectFilter();
     ART = buildArt();
     document.getElementById("start").remove();
+    document.body.classList.add("running");
     requestAnimationFrame(loop);
     // 臉部偵測（眼罩用）：背景載入，失敗也不影響手勢
     FaceLandmarker.createFromOptions(fileset, {
@@ -164,23 +200,268 @@ document.getElementById("btn").onclick = async () => {
         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
         delegate: "GPU"
       },
-      runningMode: "VIDEO", numFaces: 1
+      runningMode: "VIDEO", numFaces: 3
     }).then(f => faceLandmarker = f).catch(() => {});
   } catch (e) { statusEl.textContent = "錯誤：" + e.message; }
 };
 
 
+// ================= 拍照：去背、換背景、存到相簿 =================
+const shotBtn = document.getElementById("shot"), countEl = document.getElementById("count");
+const editor = document.getElementById("editor"), photo = document.getElementById("photo"), PH = photo.getContext("2d");
+const bgsEl = document.getElementById("bgs"), edStatus = document.getElementById("edStatus");
+let shotPending = false, subject = null, bgList = [], bgSel = 0, showFx = true, place = null;
+const newCanvas = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+const copyOf = src => { const c = newCanvas(src.width, src.height); c.getContext("2d").drawImage(src, 0, 0); return c; };
+
+shotBtn.onclick = async () => {
+  shotBtn.disabled = true;
+  for (const n of [3, 2, 1]) {
+    countEl.textContent = n; countEl.style.transition = "none"; countEl.style.opacity = 1; countEl.style.transform = "scale(1.3)";
+    await new Promise(r => requestAnimationFrame(r));
+    countEl.style.transition = "opacity .9s, transform .9s"; countEl.style.opacity = 0; countEl.style.transform = "scale(.8)";
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  shotPending = true;          // 下一幀畫完之後拍（特效圖層才是完整的）
+  shotBtn.disabled = false;
+};
+
+async function getSegmenter() {
+  if (!segmenter) segmenter = await ImageSegmenter.createFromOptions(visionFiles, {
+    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite", delegate: "GPU" },
+    runningMode: "IMAGE", outputCategoryMask: false, outputConfidenceMasks: true
+  });
+  return segmenter;
+}
+
+async function takeShot() {
+  // 1. 先把這一幀的影像與特效圖層全部複製下來
+  const c = cover();
+  const raw = newCanvas(c.vw, c.vh); raw.getContext("2d").drawImage(video, 0, 0, c.vw, c.vh);
+  const dark = copyOf(darkC), blindL = copyOf(blindAllC);
+  const light = newCanvas(W, H), lg = light.getContext("2d");
+  lg.globalCompositeOperation = "lighter";
+  if (FILTER_OK) lg.drawImage(bloomC, 0, 0, W, H); else { lg.drawImage(tinyC, 0, 0, W, H); lg.drawImage(tiny2C, 0, 0, W, H); }
+  lg.drawImage(lightC, 0, 0);
+  whiteout = 8;
+  openEditor();
+  edStatus.textContent = "去背中…";
+  try {
+    // 2. 人像分割（多人也可以，所有人都會被切出來）
+    const seg = await getSegmenter();
+    let mask = null;
+    seg.segment(raw, res => {
+      const m = res.confidenceMasks[0], arr = m.getAsFloat32Array(), mw = m.width, mh = m.height;
+      mask = newCanvas(mw, mh);
+      const mg = mask.getContext("2d"), img = mg.createImageData(mw, mh);
+      for (let i = 0; i < arr.length; i++) {
+        const v = Math.min(1, Math.max(0, (arr[i] - .35) / .3));
+        img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = v * 255;
+      }
+      mg.putImageData(img, 0, 0);
+    });
+    // 3. 把人（鏡像、與畫面同樣的裁切）放到螢幕座標
+    const person = newCanvas(W, H), pg = person.getContext("2d");
+    const mirror = (g, img) => { g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(img, c.ox, c.oy, c.vw * c.s, c.vh * c.s); g.restore(); };
+    mirror(pg, raw);
+    pg.globalCompositeOperation = "destination-in"; mirror(pg, mask);
+    // 4. 找出人的範圍（之後擺位用）
+    const small = newCanvas(Math.ceil(W / 8), Math.ceil(H / 8)), sg = small.getContext("2d");
+    sg.drawImage(person, 0, 0, small.width, small.height);
+    const d = sg.getImageData(0, 0, small.width, small.height).data;
+    let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (let y = 0; y < small.height; y++) for (let x = 0; x < small.width; x++) if (d[(y * small.width + x) * 4 + 3] > 60) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    if (x1 < 0) { x0 = 0; y0 = 0; x1 = small.width; y1 = small.height; }
+    const box = { x0: x0 * 8, y0: y0 * 8, x1: (x1 + 1) * 8, y1: Math.min(H, (y1 + 1) * 8) };
+    // 黑色特效只保留人周圍（羽化），全螢幕的暗色不會蓋住整張背景
+    const pad = Math.max(box.x1 - box.x0, box.y1 - box.y0) * .45;
+    const dg = dark.getContext("2d"), cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2, rr = Math.hypot(box.x1 - box.x0, box.y1 - box.y0) / 2 + pad;
+    const fade = dg.createRadialGradient(cx, cy, rr * .55, cx, cy, rr);
+    fade.addColorStop(0, "#000"); fade.addColorStop(1, "rgba(0,0,0,0)");
+    dg.globalCompositeOperation = "destination-in"; dg.fillStyle = fade; dg.fillRect(0, 0, W, H);
+    subject = { person, dark, light, blind: blindL, box };
+    place = null;
+    edStatus.textContent = "拖曳可以移動，兩指（或滑鼠滾輪）可以縮放";
+    render();
+  } catch (e) { edStatus.textContent = "去背失敗：" + e.message; }
+}
+
+// ---- 背景 ----
+function genBg(kind) {
+  const w = 1920, h = 1080, c = newCanvas(w, h), g = c.getContext("2d");
+  const lin = (stops) => { const gr = g.createLinearGradient(0, 0, 0, h); stops.forEach(([o, col]) => gr.addColorStop(o, col)); g.fillStyle = gr; g.fillRect(0, 0, w, h); };
+  const rad = (x, y, r, col) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, col); gr.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = gr; g.fillRect(0, 0, w, h); };
+  if (kind === "void") {
+    lin([[0, "#02030c"], [1, "#0a0624"]]);
+    rad(600, 400, 700, "rgba(60,90,255,.35)"); rad(1400, 600, 650, "rgba(170,60,255,.3)"); rad(1000, 900, 500, "rgba(255,90,200,.15)");
+    for (let k = 0; k < 900; k++) { g.fillStyle = `rgba(255,255,255,${Math.random()})`; const z = Math.random() * 2.4; g.fillRect(Math.random() * w, Math.random() * h, z, z); }
+    rad(960, 540, 260, "rgba(230,240,255,.9)");
+  } else if (kind === "shrine") {
+    lin([[0, "#4a0006"], [.6, "#1a0002"], [1, "#050000"]]);
+    g.strokeStyle = "rgba(255,60,60,.5)";
+    for (let k = 0; k < 60; k++) { g.lineWidth = Math.random() * 3; const x = Math.random() * w, y = Math.random() * h, a = Math.random() * TAU, l = 200 + Math.random() * 500; g.beginPath(); g.moveTo(x - Math.cos(a) * l, y - Math.sin(a) * l); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+    g.fillStyle = "#0a0000";
+    for (let t2 = 0; t2 < 3; t2++) { const y = 300 - t2 * 90, ww = 420 - t2 * 90; g.beginPath(); g.moveTo(960 - ww - 50, y + 20); g.quadraticCurveTo(960, y - 80, 960 + ww + 50, y + 20); g.lineTo(960 + ww, y + 50); g.lineTo(960 - ww, y + 50); g.fill(); }
+    g.fillRect(560, 350, 800, 420);
+  } else if (kind === "garden") {
+    lin([[0, "#050b1e"], [1, "#000"]]);
+    rad(960, 300, 700, "rgba(60,110,255,.25)");
+    g.fillStyle = "#000";
+    for (let k = 0; k < 40; k++) { g.beginPath(); g.arc(k * 50, 760 + Math.sin(k * 1.7) * 40, 90, 0, TAU); g.fill(); }
+    g.fillRect(0, 780, w, 300);
+    for (let k = 0; k < 14; k++) { const x = 80 + k * 135, y = 840 + (k % 3) * 60; g.fillStyle = k % 3 ? "#7cf" : "#f55"; g.beginPath(); g.arc(x - 9, y, 5, 0, TAU); g.arc(x + 9, y, 5, 0, TAU); g.fill(); }
+  } else {
+    lin([[0, "#0b1430"], [.7, "#26305a"], [1, "#101528"]]);
+    rad(1500, 220, 140, "rgba(255,250,230,.95)"); rad(1500, 220, 420, "rgba(200,210,255,.18)");
+    g.fillStyle = "#070a16";
+    g.beginPath(); g.moveTo(0, 860); for (let x = 0; x <= w; x += 120) g.lineTo(x, 700 + Math.sin(x * .004) * 80 + Math.sin(x * .013) * 30); g.lineTo(w, h); g.lineTo(0, h); g.fill();
+    for (const [x, ww, hh] of [[400, 360, 200], [900, 260, 150], [1300, 420, 230]]) {
+      g.fillRect(x - ww / 2, 880 - hh, ww, hh);
+      g.beginPath(); g.moveTo(x - ww / 2 - 60, 880 - hh + 10); g.quadraticCurveTo(x, 880 - hh - 90, x + ww / 2 + 60, 880 - hh + 10); g.fill();
+    }
+  }
+  return c;
+}
+// 官方主視覺（使用者自己上傳）：左下黃色空格，在夏油傑下面
+const KEYART_SLOT = [[.045, .742], [.19, .43], [.405, 1], [.045, 1]];
+function looksLikeKeyArt(img) {
+  const r = img.width / img.height;
+  if (r < 1.82 || r > 1.95) return false;
+  const c = newCanvas(40, 21), g = c.getContext("2d"); g.drawImage(img, 0, 0, 40, 21);
+  const px = (x, y) => g.getImageData(Math.floor(x * 40), Math.floor(y * 21), 1, 1).data;
+  const yellow = p => p[0] > 130 && p[1] > 95 && p[2] < 100 && p[0] - p[2] > 70;
+  return yellow(px(.2, .7)) && yellow(px(.05, .12));       // 左下空格與夏油傑那格都是黃色
+}
+function addBg(img, name, slot = null) {
+  const entry = { img, name, slot: slot || (looksLikeKeyArt(img) ? KEYART_SLOT : null) };
+  bgList.push(entry);
+  const th = img.cloneNode ? (img instanceof HTMLCanvasElement ? img : img.cloneNode()) : img;
+  const el = th instanceof HTMLCanvasElement ? (() => { const t = newCanvas(224, 126); t.getContext("2d").drawImage(img, 0, 0, 224, 126); return t; })() : th;
+  el.title = name;
+  el.onclick = () => { bgSel = bgList.indexOf(entry); place = null; render(); };
+  bgsEl.appendChild(el);
+  return entry;
+}
+function initBgs() {
+  if (bgList.length) return;
+  addBg(genBg("void"), "無量空處"); addBg(genBg("shrine"), "伏魔御廚子"); addBg(genBg("garden"), "嵌合暗翳庭"); addBg(genBg("school"), "高專夜色");
+  loadSavedBgs();
+}
+// 上傳過的背景存在這台裝置的瀏覽器裡（IndexedDB），下次不用再傳
+function idb() {
+  return new Promise((ok, no) => { const r = indexedDB.open("jjk-photo", 1); r.onupgradeneeded = () => r.result.createObjectStore("bgs", { autoIncrement: true }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+}
+async function saveBgBlob(blob) { try { const db = await idb(); db.transaction("bgs", "readwrite").objectStore("bgs").add(blob); } catch (e) {} }
+async function loadSavedBgs() {
+  try {
+    const db = await idb(), req = db.transaction("bgs").objectStore("bgs").getAll();
+    req.onsuccess = async () => { for (const blob of req.result) { const img = await blobToImg(blob); addBg(img, "上傳的背景"); } };
+  } catch (e) {}
+}
+const blobToImg = blob => new Promise((ok, no) => { const img = new Image(); img.onload = () => ok(img); img.onerror = no; img.src = URL.createObjectURL(blob); });
+document.getElementById("bgUpload").onchange = async e => {
+  let last = null;
+  for (const f of e.target.files) { const img = await blobToImg(f); last = addBg(img, f.name); saveBgBlob(f); }
+  if (last) { bgSel = bgList.indexOf(last); place = null; render(); }
+  e.target.value = "";
+};
+
+// ---- 合成 ----
+function defaultPlace(bg, ow, oh) {
+  const b = subject.box, bw = b.x1 - b.x0, bh = b.y1 - b.y0;
+  if (bg.slot) {
+    const xs = bg.slot.map(p => p[0] * ow), ys = bg.slot.map(p => p[1] * oh);
+    const sx0 = Math.min(...xs), sx1 = Math.max(...xs), sy0 = Math.min(...ys), sy1 = Math.max(...ys);
+    const k = Math.min((sy1 - sy0) * .95 / bh, (sx1 - sx0) * 1.1 / bw);
+    return { x: sx0 + (sx1 - sx0) * .42, y: sy1, k };
+  }
+  return { x: ow / 2, y: oh, k: oh * .85 / bh };
+}
+function render() {
+  if (!subject) return;
+  const bg = bgList[bgSel];
+  const sc = Math.min(1, 2048 / Math.max(bg.img.width, bg.img.height));
+  const ow = Math.round(bg.img.width * sc), oh = Math.round(bg.img.height * sc);
+  if (photo.width !== ow || photo.height !== oh) { photo.width = ow; photo.height = oh; }
+  if (!place) place = defaultPlace(bg, ow, oh);
+  [...bgsEl.children].forEach((el, i) => el.classList.toggle("sel", i === bgSel));
+  PH.save(); PH.globalCompositeOperation = "source-over";
+  PH.drawImage(bg.img, 0, 0, ow, oh);
+  if (bg.slot) { PH.beginPath(); bg.slot.forEach(([x, y], i) => i ? PH.lineTo(x * ow, y * oh) : PH.moveTo(x * ow, y * oh)); PH.closePath(); PH.clip(); }
+  const b = subject.box;
+  PH.translate(place.x, place.y); PH.scale(place.k, place.k); PH.translate(-(b.x0 + b.x1) / 2, -b.y1);
+  if (showFx) PH.drawImage(subject.dark, 0, 0);
+  PH.drawImage(subject.person, 0, 0);
+  if (showFx) { PH.globalCompositeOperation = "lighter"; PH.drawImage(subject.light, 0, 0); PH.globalCompositeOperation = "source-over"; }
+  PH.drawImage(subject.blind, 0, 0);
+  PH.restore();
+}
+function openEditor() { initBgs(); editor.classList.add("show"); }
+document.getElementById("retake").onclick = () => { editor.classList.remove("show"); subject = null; };
+document.getElementById("resetPos").onclick = () => { place = null; render(); };
+document.getElementById("fxToggle").onclick = e => { showFx = !showFx; e.target.textContent = "特效：" + (showFx ? "開" : "關"); render(); };
+document.getElementById("savePhoto").onclick = async () => {
+  if (!subject) return;
+  const blob = await new Promise(r => photo.toBlob(r, "image/jpeg", .92));
+  const d = new Date(), pad2 = n => String(n).padStart(2, "0");
+  const name = `jjk-${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}.jpg`;
+  const file = new File([blob], name, { type: "image/jpeg" });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {   // iPad / iPhone：分享選單裡選「儲存影像」就會進相簿
+      await navigator.share({ files: [file], title: "咒術回戰" });
+      edStatus.textContent = "在分享選單選「儲存影像」就會存進照片";
+      return;
+    }
+  } catch (e) { if (e.name === "AbortError") return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  edStatus.textContent = "已下載：" + name;
+};
+// 拖曳移動、兩指縮放
+const ptrs = new Map(); let pinch0 = null;
+const toPhoto = e => { const r = photo.getBoundingClientRect(); return { x: (e.clientX - r.left) * photo.width / r.width, y: (e.clientY - r.top) * photo.height / r.height }; };
+photo.addEventListener("pointerdown", e => { photo.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, toPhoto(e)); pinch0 = null; });
+photo.addEventListener("pointermove", e => {
+  if (!ptrs.has(e.pointerId) || !place) return;
+  const prev = ptrs.get(e.pointerId), cur = toPhoto(e); ptrs.set(e.pointerId, cur);
+  if (ptrs.size === 1) { place.x += cur.x - prev.x; place.y += cur.y - prev.y; }
+  else if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinch0) place.k *= d / pinch0; pinch0 = d;
+  }
+  render();
+});
+const endPtr = e => { ptrs.delete(e.pointerId); pinch0 = null; };
+photo.addEventListener("pointerup", endPtr); photo.addEventListener("pointercancel", endPtr);
+photo.addEventListener("wheel", e => { if (!place) return; e.preventDefault(); place.k *= Math.pow(1.1, -e.deltaY / 100); render(); }, { passive: false });
+
 // ================= 五條悟的眼罩 =================
-const blind = { want: false, alpha: 0, face: null };
+// 多人：每張臉各自一份眼罩狀態
+const blinds = [];   // { face: 螢幕座標的關鍵點, alpha, wantUntil, miss }
+let gojoActive = false;
 function detectFace() {
   const r = faceLandmarker.detectForVideo(video, performance.now() + 1);
-  const lm = r.faceLandmarks?.[0];
-  if (!lm) { blind.face = null; return; }
-  const old = blind.face;
-  blind.face = lm.map((q, i) => {
-    const p = toScreen(q);
-    return old ? { x: old[i].x + (p.x - old[i].x) * .45, y: old[i].y + (p.y - old[i].y) * .45 } : p;
-  });
+  const faces = (r.faceLandmarks || []).map(lm => lm.map(toScreen));
+  const taken = new Set();
+  for (const f of faces) {
+    let best = null, bd = M * .25;
+    for (const b of blinds) { if (taken.has(b) || !b.face) continue; const d = dist(b.face[1], f[1]); if (d < bd) { bd = d; best = b; } }
+    if (!best) { best = { face: null, alpha: 0, wantUntil: 0, miss: 0 }; blinds.push(best); }
+    taken.add(best); best.miss = 0;
+    const old = best.face;
+    best.face = f.map((p, i) => old ? { x: old[i].x + (p.x - old[i].x) * .45, y: old[i].y + (p.y - old[i].y) * .45 } : p);
+  }
+  for (let i = blinds.length - 1; i >= 0; i--) if (!taken.has(blinds[i]) && ++blinds[i].miss > 6) blinds.splice(i, 1);
+}
+// 每隻在用五條悟術式的手，把眼罩分給離它最近的那張臉
+function assignBlindfolds(gojoPts) {
+  const now = performance.now();
+  for (const p of gojoPts) {
+    let best = null, bd = Infinity;
+    for (const b of blinds) if (b.face) { const d = dist(b.face[1], p); if (d < bd) { bd = d; best = b; } }
+    if (best) best.wantUntil = now + 250;
+  }
+  if (!gojoPts.length && projs.some(q => q.type !== "fire")) for (const b of blinds) if (b.alpha > .5) b.wantUntil = now + 250;
+  gojoActive = gojoPts.length > 0;
 }
 // Catmull-Rom 曲線重新取樣成 n 個點
 function resample(pts, n) {
@@ -193,8 +474,8 @@ function resample(pts, n) {
   }
   return out;
 }
-function drawBlindfold() {
-  const target = blind.want && blind.face ? 1 : 0;
+function drawBlindfold(blind) {
+  const target = performance.now() < blind.wantUntil && blind.face ? 1 : 0;
   blind.alpha += (target - blind.alpha) * (target ? .25 : .45);   // 淡出比淡入快
   if (blind.alpha < .03 || !blind.face) { blind.alpha = blind.face ? blind.alpha : 0; return; }
   // 眼罩和頭髮先畫在同一張圖層，再整張一起淡入淡出，兩者才會同時出現、同時消失
@@ -300,6 +581,7 @@ function drawBlindfold() {
   }
   BX.restore();
   ctx.save(); ctx.globalAlpha = blind.alpha; ctx.drawImage(blindC, 0, 0); ctx.restore();
+  BA.save(); BA.globalAlpha = blind.alpha; BA.drawImage(blindC, 0, 0); BA.restore();   // 拍照用
 }
 
 // ================= 座標 =================
@@ -1316,20 +1598,28 @@ function composite() {
 }
 
 // ================= 主迴圈 =================
+let handSerial = 0;
 const track = {};   // 依左右手記錄：穩定手勢、上一幀位置
 let lastT = -1, hands = [];
 function detect() {
   if (video.currentTime === lastT) return;
   lastT = video.currentTime;
   const res = landmarker.detectForVideo(video, performance.now());
-  if (faceLandmarker && (blind.alpha > 0 || blind.want)) detectFace();
+  if (faceLandmarker && (gojoActive || blinds.some(b => b.alpha > .03))) detectFace();
   const seen = new Set();
   const out = [];
   res.landmarks.forEach((raw, i) => {
     const hd = res.handednesses?.[i]?.[0];
     if (hd && hd.score < .8) return;                       // 信心太低的手直接忽略
-    let key = hd?.categoryName || "h" + i;
-    if (seen.has(key)) key += i; seen.add(key);
+    // 多人：用位置把這隻手對應到上一幀最近的同側手，追蹤才不會在不同人之間跳來跳去
+    const side = hd?.categoryName || "H", wrist = toScreen(raw[0]);
+    let key = null, bestD = M * .3;
+    for (const [k2, t2] of Object.entries(track)) {
+      if (seen.has(k2) || !t2.last || !k2.startsWith(side)) continue;
+      const d = dist(t2.last.pts[0], wrist); if (d < bestD) { bestD = d; key = k2; }
+    }
+    if (!key) key = side + "#" + (++handSerial);
+    seen.add(key);
     const tr = track[key] || (track[key] = { votes: [], pose: "none", hist: [], held: 0, sm: null, missing: 0 });
     tr.missing = 0;
     // 平滑關鍵點：移動慢時平滑多一點（去抖），移動快時跟得緊
@@ -1368,8 +1658,8 @@ function detect() {
   // 短暫偵測不到（幾幀）時沿用上一次，避免特效一閃一閃
   for (const [key, tr] of Object.entries(track)) {
     if (seen.has(key) || !tr.last) continue;
-    if (++tr.missing <= 5 && out.length < 2) out.push({ ...tr.last, speed: 0, punch: false });
-    else if (tr.missing > 5) { tr.votes = []; tr.pose = "none"; tr.sm = null; tr.hist = []; tr.last = null; }
+    if (++tr.missing <= 5 && out.length < 4) out.push({ ...tr.last, speed: 0, punch: false });
+    else if (tr.missing > 5) delete track[key];
   }
   hands = out;
   hud.textContent = hands.length ? hands.map(h => POSE_NAME[h.pose]).join("　") : "偵測不到手";
@@ -1384,6 +1674,7 @@ function loop() {
   const labels = [];
   const used = new Set();
   const say = (text, color, who) => labels.push({ text, color, who });
+  const gojoPts = [];   // 正在用五條悟術式的手的位置（眼罩戴在最近的那張臉上）
 
   // --- 黑閃（正在播放）---
   for (const key of Object.keys(flashes)) {
@@ -1402,22 +1693,30 @@ function loop() {
     let dir = null;
     if (hh) { const dx = hh.pts[8].x - hh.pts[5].x, dy = hh.pts[8].y - hh.pts[5].y, n = Math.hypot(dx, dy) || 1; dir = { x: dx / n, y: dy / n }; }
     updatePurple(hh && pinchPt(hh), released, dir);
+    if (hh) gojoPts.push(hh.c);
     if (hh) used.add(hh.key);
     say("虛式「茈」", "#c8f", "五條悟");
   } else if (clawH && P.cool <= 0) {
     if (P.state !== "charge" || P.key !== clawH.key) { P.charge = 0; P.key = clawH.key; }
     P.state = "charge";
-    purpleCharge(pinchPt(clawH));
+    purpleCharge(pinchPt(clawH)); gojoPts.push(clawH.c);
     used.add(clawH.key);
     say(P.charge < .6 ? "術式順轉「蒼」・術式反轉「赫」" : "虛式「茈」", "#c8f", "五條悟");
   } else if (P.state === "charge") P.state = "idle";
 
   // --- 雙手組合 ---
-  if (hands.length === 2 && !used.size) {
-    const [A, B] = hands, close = dist(A.c, B.c) < M * .2;
+  // 多人：把距離最近的兩隻手配成一對（視為同一個人），每一對各自判斷雙手術式
+  const free = hands.filter(h => !used.has(h.key)), pairs = [];
+  const cand = [];
+  for (let i = 0; i < free.length; i++) for (let j = i + 1; j < free.length; j++) cand.push([dist(free[i].c, free[j].c), free[i], free[j]]);
+  cand.sort((x, y) => x[0] - y[0]);
+  const paired = new Set();
+  for (const [d, A, B] of cand) if (d < M * .6 && !paired.has(A.key) && !paired.has(B.key)) { pairs.push([A, B]); paired.add(A.key); paired.add(B.key); }
+  for (const [A, B] of pairs) {
+    const before = labels.length, close = dist(A.c, B.c) < M * .2;
     const both = p => A.pose === p && B.pose === p && A.held > 5 && B.held > 5;
     const hc = { x: (A.c.x + B.c.x) / 2, y: (A.c.y + B.c.y) / 2 };
-    if (both("peace")) { infiniteVoid(hc); say("領域展開・無量空處", "#cdf", "五條悟"); }
+    if (both("peace")) { infiniteVoid(hc); gojoPts.push(hc); say("領域展開・無量空處", "#cdf", "五條悟"); }
     else if (both("horns")) { shrine(hc); say("領域展開・伏魔御廚子", "#f33", "兩面宿儺"); }
     else if (both("shaka")) { chimeraGarden(hc); say("領域展開・嵌合暗翳庭", "#8af", "伏黑惠"); }
     else if (both("open") && dist(A.pts[4], B.pts[4]) < dist(A.pts[0], A.pts[9]) * 1.6 && dist(A.c, B.c) < dist(A.pts[0], A.pts[9]) * 3.2) { nue(A, B); say("十種影法術・鵺", "#9cf", "伏黑惠"); }
@@ -1428,7 +1727,7 @@ function loop() {
       say("赤血操術・" + piercingBlood(A, B), "#f33", "脹相");
     }
     // 兩手靠在一起、雙手術式還在確認中：先不出單手特效，避免畫面亂
-    if (labels.length || dist(A.c, B.c) < M * .3) hands.forEach(h => used.add(h.key));
+    if (labels.length > before || dist(A.c, B.c) < M * .3) { used.add(A.key); used.add(B.key); }
   }
   if (!labels.some(l => l.who === "脹相")) choCharge = 0;
 
@@ -1440,10 +1739,10 @@ function loop() {
     if (used.has(h.key)) continue;
     switch (h.pose) {
       case "open":
-        if (!tryLaunch(h, "blue", h.c)) blue(h.c);
+        gojoPts.push(h.c); if (!tryLaunch(h, "blue", h.c)) blue(h.c);
         say("術式順轉「蒼」", "#4cf", "五條悟"); break;
       case "point":
-        if (!tryLaunch(h, "red", h.pts[8])) red(h.pts[8]);
+        gojoPts.push(h.c); if (!tryLaunch(h, "red", h.pts[8])) red(h.pts[8]);
         say("術式反轉「赫」", "#f44", "五條悟"); break;
       case "peace":
         if (h.speed > M * .06 && h.held > 8) { cleave(h); say("解", "#f33", "兩面宿儺"); }
@@ -1465,8 +1764,10 @@ function loop() {
   for (const w of wolfQueue) drawWolf(...w);
   wolfQueue.length = 0;
   composite();
-  blind.want = labels.some(l => l.who === "五條悟");
-  drawBlindfold();
+  assignBlindfolds(gojoPts);
+  BA.clearRect(0, 0, W, H);
+  for (const b of blinds) drawBlindfold(b);
+  if (shotPending) { shotPending = false; takeShot(); }
 
   // 名稱：取最重要的一個（陣列最前面）
   const top = labels.find(l => l.text !== "咒力") || labels[0];
