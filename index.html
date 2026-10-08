@@ -44,6 +44,8 @@
 <svg width="0" height="0" style="position:absolute">
   <filter id="gooEdge"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 28 -9"/><feMorphology operator="dilate" radius="8"/><feComponentTransfer><feFuncA type="linear" slope="3"/></feComponentTransfer></filter>
   <filter id="gooFill"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -9"/></filter>
+  <filter id="shadowRim"><feGaussianBlur stdDeviation="8"/><feColorMatrix values="0 0 0 0 .2  0 0 0 0 .5  0 0 0 0 1  0 0 0 28 -9"/><feMorphology operator="dilate" radius="5"/><feGaussianBlur stdDeviation="3"/></filter>
+  <filter id="shadowBody"><feGaussianBlur stdDeviation="8"/><feColorMatrix values="0 0 0 0 .01  0 0 0 0 .01  0 0 0 0 .04  0 0 0 28 -9"/></filter>
 </svg>
 <div class="bar" id="barT"></div><div class="bar" id="barB"></div>
 <div id="user"></div>
@@ -51,7 +53,7 @@
 <div id="hud"></div>
 <div id="guide">
   <i>五條悟</i><br>
-  <b>手張開</b> 蒼　<b>伸食指</b> 赫<br>
+  <b>手張開</b> 蒼　<b>伸食指</b> 赫　（<b>揮手</b> 發射）<br>
   <b>單手手指半彎（抓球）</b> 蒼赫從左右靠攏成 虛式「茈」→ <b>用力揮出</b> 發射<br>
   <b>雙手比 YA</b> 領域展開・無量空處<br>
   <i>虎杖悠仁</i><br>
@@ -63,7 +65,7 @@
   <i>夏油傑</i><br>
   <b>食指 + 小指</b> 咒靈操術<br>
   <i>兩面宿儺</i><br>
-  <b>手張開快速揮砍</b> 解　<b>只伸拇指</b> 「開」<br>
+  <b>比 YA 快速揮砍</b> 解　<b>只伸拇指</b> 「開」<br>
   <b>雙手 食指 + 小指</b> 領域展開・伏魔御廚子<br>
   <i>七海建人</i><br>
   <b>單手比 YA</b> 十劃咒法<br>
@@ -83,14 +85,15 @@ const cv = document.getElementById("main");
 const ctx = cv.getContext("2d");
 const lightC = document.createElement("canvas"), L = lightC.getContext("2d");   // 發光層（加亮 + bloom）
 const darkC = document.createElement("canvas"), D = darkC.getContext("2d");     // 黑色層（影子、黑閃）
-const gooC = document.createElement("canvas"), G = gooC.getContext("2d");    // 咒力液體（metaball）
+const gooC = document.createElement("canvas"), G = gooC.getContext("2d");
+const shC = document.createElement("canvas"), S = shC.getContext("2d");      // 影子液體（伏黑惠）    // 咒力液體（metaball）
 const hud = document.getElementById("hud");
 const nameEl = document.getElementById("name"), userEl = document.getElementById("user");
 const statusEl = document.getElementById("status");
 let W, H, M;
 function resize() {
-  W = cv.width = lightC.width = darkC.width = gooC.width = innerWidth;
-  H = cv.height = lightC.height = darkC.height = gooC.height = innerHeight;
+  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = innerWidth;
+  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = innerHeight;
   M = Math.min(W, H);
 }
 addEventListener("resize", resize); resize();
@@ -307,6 +310,56 @@ function red(c) {
   shake = Math.max(shake, 3);
 }
 
+
+// 蒼 / 赫 發射
+const projs = [], projCool = {};
+function launch(type, x, y, vx, vy) {
+  const n = Math.hypot(vx, vy) || 1;
+  projs.push({ type, x, y, vx: vx / n * M * .045, vy: vy / n * M * .045, life: 55 });
+  shake = Math.max(shake, 12); ring(x, y, type === "blue" ? "#6cf" : "#f44", 20, 6);
+}
+function updateProjs() {
+  for (let k = projs.length - 1; k >= 0; k--) {
+    const p = projs[k];
+    p.x += p.vx; p.y += p.vy; p.life--;
+    const out = p.x < -M * .2 || p.x > W + M * .2 || p.y < -M * .2 || p.y > H + M * .2;
+    if (p.type === "blue") {
+      setGrade("rgba(0,90,255,.45)", .55, .6);
+      blueOrb(p, 1.1);
+      for (let j = 0; j < 6; j++) {                           // 沿途把東西吸進去
+        const a = rnd(0, TAU), r = M * rnd(.15, .35);
+        spawn({ x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r, pull: p, color: "#9df", w: 2, decay: .03 });
+      }
+      flare(p.x, p.y, "#29f", .7);
+    } else {
+      setGrade("rgba(255,20,30,.45)", .6, .5);
+      redOrb(p, 1.1);
+      L.strokeStyle = "rgba(255,80,80,.7)"; L.lineWidth = M * .02; L.lineCap = "round";
+      L.beginPath(); L.moveTo(p.x, p.y); L.lineTo(p.x - p.vx * 5, p.y - p.vy * 5); L.stroke();
+      flare(p.x, p.y, "#f22", .8);
+    }
+    if (p.life <= 0 || out) {
+      const ex = Math.min(W, Math.max(0, p.x)), ey = Math.min(H, Math.max(0, p.y));
+      if (p.type === "red") {                                  // 赫：爆開
+        for (let j = 0; j < 60; j++) { const a = rnd(0, TAU), v = rnd(8, 28); spawn({ x: ex, y: ey, vx: Math.cos(a) * v, vy: Math.sin(a) * v, color: Math.random() < .4 ? "#fff" : "#f22", w: rnd(2, 4), decay: .035 }); }
+        ring(ex, ey, "#f33", 34, 10); ring(ex, ey, "#fff", 22, 3); shake = 24; whiteout = 5;
+      } else {                                                 // 蒼：向內塌縮
+        ring(ex, ey, "#6cf", -14, 6); ring(ex, ey, "#fff", -9, 3); shake = 14;
+      }
+      projs.splice(k, 1);
+    }
+  }
+}
+function tryLaunch(h, type, from) {
+  projCool[h.key] = (projCool[h.key] || 0) - 1;
+  if (h.speed > M * .06 && h.held > 4 && projCool[h.key] <= 0) {
+    launch(type, from.x, from.y, h.c.x - h.prevC.x, h.c.y - h.prevC.y);
+    projCool[h.key] = 25;
+    return true;
+  }
+  return false;
+}
+
 // 茈：狀態機  idle → charge（抓球手勢，蒼赫從左右往中間靠攏）→ fused（手中紫球）→ fire（揮出）
 const P = { state: "idle", key: null, cool: 0, charge: 0, pos: null, prev: null, lost: 0, fire: 0, dir: { x: 1, y: 0 }, origin: null };
 function purpleCharge(c) {
@@ -427,14 +480,26 @@ function infiniteVoid() {
 
 // ================= 虎杖：咒力包覆 + 黑閃 =================
 // 咒力像黏稠液體包覆整隻手：外圈黑色輪廓（黑色層）+ 內部紅色發光（亮層）
+let gooUsed = false, shadowUsed = false;
 function gooBlob(x, y, r) {
+  gooUsed = true;
   G.fillStyle = "rgb(235,10,30)"; G.beginPath(); G.arc(x, y, r, 0, TAU); G.fill();
 }
 function flushGoo() {
+  if (gooUsed) {
   D.filter = "url(#gooEdge)"; D.drawImage(gooC, 0, 0); D.filter = "none";
   D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none";
   L.globalAlpha = .35; L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; L.globalAlpha = 1;
-  G.clearRect(0, 0, W, H);
+  G.clearRect(0, 0, W, H); gooUsed = false;
+  }
+  if (!shadowUsed) return;
+  // 影子：藍色輪廓光 → 挖掉本體 → 本體畫成近乎全黑
+  L.globalAlpha = .8; L.filter = "url(#shadowRim)"; L.drawImage(shC, 0, 0);
+  L.globalCompositeOperation = "destination-out"; L.filter = "url(#shadowBody)"; L.drawImage(shC, 0, 0);
+  L.globalCompositeOperation = "source-over"; L.filter = "none"; L.globalAlpha = 1;
+  D.filter = "url(#shadowBody)"; D.drawImage(shC, 0, 0); D.filter = "none";
+  S.clearRect(0, 0, W, H);
+  gooUsed = shadowUsed = false;
 }
 const auraState = {};
 function cursedAura(h, power = 1) {
@@ -549,36 +614,85 @@ function piercingBlood(a, b) {
 }
 
 // ================= 伏黑惠 =================
-function shadowPool(x, y, r) {
-  glow(D, x, y, r, [[0, "rgba(0,0,0,.95)"], [.7, "rgba(0,0,10,.7)"], [1, "rgba(0,0,0,0)"]]);
-  for (let k = 0; k < 5; k++) spawn({ layer: D, x: x + rnd(-r * .8, r * .8), y, vy: rnd(-4, -1), vx: rnd(-.6, .6), color: "rgba(0,0,0,.9)", w: rnd(6, 16), decay: .015, blob: 1 });
+// 影子像墨水一樣流動（metaball），狼從影子表面浮出來
+function inkPool(x, y, rx, ry = rx * .28) {
+  shadowUsed = true;
+  for (let k = 0; k < 18; k++) {
+    const a = k / 18 * TAU, wob = 1 + .12 * Math.sin(t * .08 + k * 1.9);
+    S.fillStyle = "#000"; S.beginPath();
+    S.arc(x + Math.cos(a) * rx * .78 * wob, y + Math.sin(a) * ry * .7 * wob, ry * .75, 0, TAU); S.fill();
+  }
+  S.beginPath(); S.ellipse(x, y, rx * .8, ry * .8, 0, 0, TAU); S.fill();
+  for (let k = 0; k < 3; k++)                                   // 往上冒的影子
+    spawn({ shadow: 1, x: x + rnd(-rx * .7, rx * .7), y: y - ry * .2, vx: rnd(-.4, .4), vy: rnd(-3, -1.2), w: rnd(.08, .16) * ry * 2, decay: .02 });
+  const rp = (t * .6) % 40 / 40;                               // 水面漣漪
+  L.strokeStyle = `rgba(90,150,255,${.35 * (1 - rp)})`; L.lineWidth = 2;
+  L.beginPath(); L.ellipse(x, y, rx * (.9 + rp * .5), ry * (.9 + rp * .5), 0, 0, TAU); L.stroke();
 }
-function wolf(x, y, s, white) {
-  const g = white ? L : D;
-  g.save(); g.translate(x, y); g.scale(s, s);
-  g.fillStyle = white ? "rgba(230,240,255,.85)" : "#05050a";
+function wolfPath(g) {
   g.beginPath();
-  g.moveTo(-60, 40); g.lineTo(-52, -70); g.lineTo(-22, -28); g.lineTo(22, -28); g.lineTo(52, -70);
-  g.lineTo(60, 40); g.lineTo(26, 72); g.lineTo(0, 115); g.lineTo(-26, 72); g.closePath(); g.fill();
-  g.restore();
-  for (const sx of [-1, 1]) glow(L, x + sx * 22 * s, y + 8 * s, 16 * s, [[0, "#fff"], [.3, white ? "#7cf" : "#f33"], [1, "rgba(0,0,0,0)"]]);
+  g.moveTo(-55, 0); g.bezierCurveTo(-62, -50, -52, -90, -30, -112);
+  g.lineTo(-36, -152); g.lineTo(-12, -122); g.lineTo(-2, -152); g.lineTo(6, -118);
+  g.bezierCurveTo(26, -118, 46, -108, 76, -95);
+  g.lineTo(90, -88); g.lineTo(86, -79);
+  g.bezierCurveTo(66, -74, 52, -72, 40, -71);
+  g.lineTo(60, -62); g.bezierCurveTo(40, -54, 20, -54, 10, -50);
+  g.bezierCurveTo(4, -30, 10, -10, 16, 0); g.closePath();
 }
+const wolfQueue = [];
+function wolf(...args) { wolfQueue.push(args); }
+function drawWolf(x, y, s, white, dir, emerge) {
+  const rise = (1 - emerge) * 170, breathe = Math.sin(t * .12 + x) * 3;
+  for (const g of [D, L]) { g.save(); g.beginPath(); g.rect(x - 200 * s, y - 400 * s, 400 * s, 400 * s); g.clip(); g.translate(x, y + rise * s + breathe); g.scale(s * dir, s); }
+  if (white) {
+    wolfPath(D); D.fillStyle = "#000"; D.fill();
+    wolfPath(L); L.fillStyle = "rgba(200,215,240,.6)"; L.fill();
+    L.strokeStyle = "rgba(120,180,255,.9)"; L.lineWidth = 3; L.stroke();
+  } else {
+    wolfPath(D); D.fillStyle = "#020208"; D.fill();
+    wolfPath(L); L.strokeStyle = "rgba(80,150,255,.95)"; L.lineWidth = 4; L.stroke();
+  }
+  L.fillStyle = "#fff";                                         // 獠牙
+  L.beginPath(); L.moveTo(44, -71); L.lineTo(48, -62); L.lineTo(52, -71); L.fill();
+  for (const g of [D, L]) g.restore();
+  if (emerge > .5) {
+    const ex = x + 30 * s * dir, ey = y + (-105 + rise) * s + breathe;
+    glow(L, ex, ey, 14 * s * 2, [[0, "#fff"], [.25, white ? "#9df" : "#f44"], [1, "rgba(0,0,0,0)"]]);
+  }
+}
+const shadowState = { dogs: 0, garden: 0, lastDogs: -1e9, lastGarden: -1e9 };
 function divineDogs(c) {
-  setGrade("rgba(20,40,90,.45)", .75, .2);
-  const gy = c.y + M * .18;
-  shadowPool(c.x, gy, M * .35);
-  wolf(c.x - M * .2, gy - M * .06 + Math.sin(t * .15) * 4, M / 650, true);
-  wolf(c.x + M * .2, gy - M * .06 + Math.sin(t * .15 + 1) * 4, M / 650, false);
+  const now = performance.now(), first = now - shadowState.lastDogs > 1000;
+  if (first) shadowState.dogs = now;
+  shadowState.lastDogs = now;
+  const e = Math.min(1, (now - shadowState.dogs) / 800), ease = 1 - Math.pow(1 - e, 3);
+  setGrade("rgba(20,40,110,.45)", .7, .25);
+  const gy = c.y + M * .22, s = M / 750;
+  inkPool(c.x, gy, M * .38);
+  wolf(c.x - M * .15, gy - M * .03, s, true, 1, ease);
+  wolf(c.x + M * .15, gy - M * .03, s, false, -1, Math.max(0, ease - .15) / .85);
+  if (first) { ring(c.x, gy, "#5af", 14, 3); shake = 6; }
 }
 function chimeraGarden() {
-  setGrade("rgba(10,20,60,.6)", .9, .1);
-  D.fillStyle = "rgba(0,0,5,.55)"; D.fillRect(0, H * .55, W, H * .45);
-  for (let k = 0; k < 8; k++) shadowPool(rnd(0, W), H * rnd(.6, 1), M * .25);
-  for (let k = 0; k < 6; k++) {
-    const x = (k + .5) / 6 * W, y = H * (.35 + .1 * Math.sin(k * 2.3)) + Math.sin(t * .05 + k) * 10;
-    for (const sx of [-1, 1]) glow(L, x + sx * 14, y, 12, [[0, "#fff"], [.3, k % 2 ? "#f44" : "#7cf"], [1, "rgba(0,0,0,0)"]]);
+  const now = performance.now();
+  if (now - shadowState.lastGarden > 1000) shadowState.garden = now;
+  shadowState.lastGarden = now;
+  const e = Math.min(1, (now - shadowState.garden) / 1200);
+  setGrade("rgba(10,25,80,.6)", .9, .1);
+  const sea = H - H * .42 * e;                                  // 影子淹上來
+  for (let k = 0; k <= 16; k++) {
+    const x = k / 16 * W, y = sea + Math.sin(t * .06 + k * 1.3) * M * .025;
+    S.fillStyle = "#000"; S.beginPath(); S.arc(x, y, M * .09, 0, TAU); S.fill();
   }
-  speedLines(D, W / 2, H, "#000", 30, .1);
+  S.fillRect(0, sea, W, H - sea); shadowUsed = true;
+  for (let k = 0; k < 4; k++) spawn({ shadow: 1, x: rnd(0, W), y: sea, vx: rnd(-.5, .5), vy: rnd(-4, -1.5), w: M * rnd(.02, .05), decay: .02 });
+  const s = M / 850;
+  [[.18, 1, true], [.42, -1, false], [.66, 1, false], [.86, -1, true]].forEach(([fx, dir, white], k) =>
+    wolf(W * fx, sea + M * .01, s, white, dir, Math.min(1, Math.max(0, e * 1.6 - k * .15))));
+  for (let k = 0; k < 10; k++) {                               // 影子裡的眼睛
+    const x = (k + .5) / 10 * W, y = sea + M * (.12 + .1 * Math.abs(Math.sin(k * 2.7))), blink = Math.sin(t * .05 + k * 3) > -.9;
+    if (blink && e > .6) for (const sx of [-1, 1]) glow(L, x + sx * 10, y, 9, [[0, "#fff"], [.3, k % 3 ? "#7cf" : "#f44"], [1, "rgba(0,0,0,0)"]]);
+  }
 }
 
 // ================= 夏油傑 =================
@@ -672,6 +786,7 @@ function updateFx() {
     }
     q.vy += q.g; q.x += q.vx; q.y += q.vy; q.life -= q.decay;
     if (q.life <= 0) { parts.splice(k, 1); continue; }
+    if (q.shadow) { shadowUsed = true; S.fillStyle = "#000"; S.beginPath(); S.arc(q.x, q.y, q.w * Math.min(1, q.life * 1.4), 0, TAU); S.fill(); continue; }
     if (q.goo) { q.vy += .25; gooBlob(q.x, q.y, q.w * Math.min(1, q.life * 1.5) * 1.6); continue; }
     g.globalAlpha = Math.min(1, q.life * 1.5);
     if (q.blob) { g.fillStyle = q.color; g.beginPath(); g.arc(q.x, q.y, q.w * q.life, 0, TAU); g.fill(); }
@@ -826,11 +941,15 @@ function loop() {
     if (used.has(h.key)) continue;
     switch (h.pose) {
       case "open":
+        if (!tryLaunch(h, "blue", h.c)) blue(h.c);
+        say("術式順轉「蒼」", "#4cf", "五條悟"); break;
+      case "point":
+        if (!tryLaunch(h, "red", h.pts[8])) red(h.pts[8]);
+        say("術式反轉「赫」", "#f44", "五條悟"); break;
+      case "peace":
         if (h.speed > M * .06 && h.held > 4) { cleave(h); say("解", "#f33", "兩面宿儺"); }
-        else { blue(h.c); say("術式順轉「蒼」", "#4cf", "五條悟"); }
+        else { ratio(h); say("十劃咒法", "#fd6", "七海建人"); }
         break;
-      case "point": red(h.pts[8]); say("術式反轉「赫」", "#f44", "五條悟"); break;
-      case "peace": ratio(h); say("十劃咒法", "#fd6", "七海建人"); break;
       case "horns": cursedSpirits(h.c); say("咒靈操術", "#b6f", "夏油傑"); break;
       case "shaka": divineDogs(h.c); say("十種影法術・玉犬", "#8af", "伏黑惠"); break;
       case "thumb": fuga(h); say("「開」", "#fa3", "兩面宿儺"); break;
@@ -841,8 +960,12 @@ function loop() {
     }
   }
 
+  updateProjs();
+  if (projs.length && !labels.length) say(projs[0].type === "blue" ? "術式順轉「蒼」" : "術式反轉「赫」", projs[0].type === "blue" ? "#4cf" : "#f44", "五條悟");
   updateFx();
   flushGoo();
+  for (const w of wolfQueue) drawWolf(...w);
+  wolfQueue.length = 0;
   composite();
 
   // 名稱：取最重要的一個（陣列最前面）
