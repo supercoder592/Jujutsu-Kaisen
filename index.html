@@ -341,6 +341,7 @@ function addBg(img, name, slot = null) {
   el.title = name;
   el.onclick = () => { bgSel = bgList.indexOf(entry); place = null; render(); };
   bgsEl.appendChild(el);
+  entry.el = el;
   return entry;
 }
 // ===== 背景照片的接口：把圖片照這些檔名放進 GitHub 的 backgrounds/ 資料夾就會自動出現 =====
@@ -363,24 +364,24 @@ async function initBgs() {
   const repo = await Promise.allSettled(BG_FILES.map(e => loadImg(e.file)));
   repo.forEach((r, i) => { if (r.status === "fulfilled") addBg(r.value, BG_FILES[i].name, BG_FILES[i].slot || null); });
   addBg(genBg("void"), "無量空處"); addBg(genBg("shrine"), "伏魔御廚子"); addBg(genBg("garden"), "嵌合暗翳庭"); addBg(genBg("school"), "高專夜色");
-  loadSavedBgs();
   render();
 }
-// 上傳過的背景存在這台裝置的瀏覽器裡（IndexedDB），下次不用再傳
-function idb() {
-  return new Promise((ok, no) => { const r = indexedDB.open("jjk-photo", 1); r.onupgradeneeded = () => r.result.createObjectStore("bgs", { autoIncrement: true }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
-}
-async function saveBgBlob(blob) { try { const db = await idb(); db.transaction("bgs", "readwrite").objectStore("bgs").add(blob); } catch (e) {} }
-async function loadSavedBgs() {
-  try {
-    const db = await idb(), req = db.transaction("bgs").objectStore("bgs").getAll();
-    req.onsuccess = async () => { for (const blob of req.result) { const img = await blobToImg(blob); addBg(img, "上傳的背景"); } };
-  } catch (e) {}
+// 從瀏覽器上傳的背景只用在這一次：不存到任何地方，按「重拍」關掉編輯畫面時就移除
+try { indexedDB.deleteDatabase("jjk-photo"); } catch (e) {}   // 清掉舊版本存下來的背景
+function dropTempBgs() {
+  for (let i = bgList.length - 1; i >= 0; i--) {
+    const e = bgList[i];
+    if (!e.temp) continue;
+    e.el && e.el.remove();
+    if (e.img.src && e.img.src.startsWith("blob:")) URL.revokeObjectURL(e.img.src);
+    bgList.splice(i, 1);
+  }
+  if (bgSel >= bgList.length) bgSel = 0;
 }
 const blobToImg = blob => new Promise((ok, no) => { const img = new Image(); img.onload = () => ok(img); img.onerror = no; img.src = URL.createObjectURL(blob); });
 document.getElementById("bgUpload").onchange = async e => {
   let last = null;
-  for (const f of e.target.files) { const img = await blobToImg(f); last = addBg(img, f.name); saveBgBlob(f); }
+  for (const f of e.target.files) { const img = await blobToImg(f); last = addBg(img, "上傳的背景"); last.temp = true; }
   if (last) { bgSel = bgList.indexOf(last); place = null; render(); }
   e.target.value = "";
 };
@@ -416,7 +417,7 @@ function render() {
   PH.restore();
 }
 function openEditor() { initBgs(); editor.classList.add("show"); }
-document.getElementById("retake").onclick = () => { editor.classList.remove("show"); subject = null; };
+document.getElementById("retake").onclick = () => { editor.classList.remove("show"); subject = null; dropTempBgs(); };
 document.getElementById("resetPos").onclick = () => { place = null; render(); };
 document.getElementById("fxToggle").onclick = e => { showFx = !showFx; e.target.textContent = "特效：" + (showFx ? "開" : "關"); render(); };
 document.getElementById("savePhoto").onclick = async () => {
