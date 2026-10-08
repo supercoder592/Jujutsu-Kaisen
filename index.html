@@ -94,13 +94,42 @@ const csC = document.createElement("canvas"), CS = csC.getContext("2d");      //
 const bloomC = document.createElement("canvas"), B = bloomC.getContext("2d");      // 半解析度 bloom
 const snapC = document.createElement("canvas"), SN = snapC.getContext("2d");
 const snap2C = document.createElement("canvas"), S2 = snap2C.getContext("2d");      // 扭曲、色差用的畫面快照      // 影子液體（伏黑惠）    // 咒力液體（metaball）
+// iPad／iPhone（所有瀏覽器都是 WebKit）不支援 canvas 的 filter，要改用不靠濾鏡的畫法
+let FILTER_OK = true;
+function detectFilter() {
+  try {
+    const c = document.createElement("canvas"); c.width = c.height = 24;
+    const g = c.getContext("2d");
+    if (!("filter" in g)) return false;
+    g.filter = "blur(2px)"; g.fillRect(12, 12, 1, 1); g.filter = "none";
+    if (g.getImageData(9, 12, 1, 1).data[3] === 0) return false;
+    g.clearRect(0, 0, 24, 24); g.fillStyle = "#f00"; g.filter = "url(#gooEdge)"; g.fillRect(4, 4, 16, 16); g.filter = "none";
+    const px = g.getImageData(12, 12, 1, 1).data;
+    return px[0] < 80 && px[3] > 0;                       // gooEdge 會把形狀變成黑色
+  } catch (e) { return false; }
+}
+const tmpC = document.createElement("canvas"), TM = tmpC.getContext("2d");
+const tinyC = document.createElement("canvas"), TY = tinyC.getContext("2d");
+const tiny2C = document.createElement("canvas"), TY2 = tiny2C.getContext("2d");
+function tinted(src, color) {
+  TM.globalCompositeOperation = "copy"; TM.drawImage(src, 0, 0);
+  TM.globalCompositeOperation = "source-in"; TM.fillStyle = color; TM.fillRect(0, 0, W, H);
+  TM.globalCompositeOperation = "source-over";
+  return tmpC;
+}
+// 沒有濾鏡時：把形狀往 8 個方向蓋印，做出外框
+function stampOutline(g, src, color, px) {
+  const img = tinted(src, color);
+  for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; g.drawImage(img, Math.cos(a) * px, Math.sin(a) * px); }
+}
 const hud = document.getElementById("hud");
 const nameEl = document.getElementById("name"), userEl = document.getElementById("user");
 const statusEl = document.getElementById("status");
 let W, H, M;
 function resize() {
-  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = innerWidth;
-  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = innerHeight;
+  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = innerWidth;
+  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = innerHeight;
+  tinyC.width = Math.ceil(W / 8); tinyC.height = Math.ceil(H / 8); tiny2C.width = Math.ceil(W / 20); tiny2C.height = Math.ceil(H / 20);
   bloomC.width = Math.ceil(W / 2); bloomC.height = Math.ceil(H / 2);
   M = Math.min(W, H);
 }
@@ -122,6 +151,7 @@ document.getElementById("btn").onclick = async () => {
     });
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
     await video.play();
+    FILTER_OK = detectFilter();
     ART = buildArt();
     document.getElementById("start").remove();
     requestAnimationFrame(loop);
@@ -676,24 +706,40 @@ function gooBlob(x, y, r) {
 }
 function flushGoo() {
   if (gooUsed) {
-  D.filter = "url(#gooEdge)"; D.drawImage(gooC, 0, 0); D.filter = "none";
-  D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none";
-  L.globalAlpha = .35; L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; L.globalAlpha = 1;
+  if (FILTER_OK) {
+    D.filter = "url(#gooEdge)"; D.drawImage(gooC, 0, 0); D.filter = "none";
+    D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none";
+    L.globalAlpha = .35; L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; L.globalAlpha = 1;
+  } else {
+    stampOutline(D, gooC, "#000", Math.max(7, M * .016));
+    D.drawImage(gooC, 0, 0);
+    L.globalAlpha = .35; L.drawImage(gooC, 0, 0); L.globalAlpha = 1;
+  }
   G.clearRect(0, 0, W, H); gooUsed = false;
   }
   if (curseUsed) {
-    L.globalAlpha = .85; L.filter = "url(#curseRim)"; L.drawImage(csC, 0, 0);
-    L.globalCompositeOperation = "destination-out"; L.filter = "url(#shadowBody)"; L.drawImage(csC, 0, 0);
-    L.globalCompositeOperation = "source-over"; L.filter = "none"; L.globalAlpha = 1;
-    D.filter = "url(#shadowBody)"; D.drawImage(csC, 0, 0); D.filter = "none";
+    if (FILTER_OK) {
+      L.globalAlpha = .85; L.filter = "url(#curseRim)"; L.drawImage(csC, 0, 0);
+      L.globalCompositeOperation = "destination-out"; L.filter = "url(#shadowBody)"; L.drawImage(csC, 0, 0);
+      L.globalCompositeOperation = "source-over"; L.filter = "none"; L.globalAlpha = 1;
+      D.filter = "url(#shadowBody)"; D.drawImage(csC, 0, 0); D.filter = "none";
+    } else {
+      stampOutline(D, csC, "#a24bff", 4);
+      D.drawImage(tinted(csC, "#06040c"), 0, 0);
+    }
     CS.clearRect(0, 0, W, H); curseUsed = false;
   }
   if (!shadowUsed) return;
   // 影子：藍色輪廓光 → 挖掉本體 → 本體畫成近乎全黑
-  L.globalAlpha = .8; L.filter = "url(#shadowRim)"; L.drawImage(shC, 0, 0);
-  L.globalCompositeOperation = "destination-out"; L.filter = "url(#shadowBody)"; L.drawImage(shC, 0, 0);
-  L.globalCompositeOperation = "source-over"; L.filter = "none"; L.globalAlpha = 1;
-  D.filter = "url(#shadowBody)"; D.drawImage(shC, 0, 0); D.filter = "none";
+  if (FILTER_OK) {
+    L.globalAlpha = .8; L.filter = "url(#shadowRim)"; L.drawImage(shC, 0, 0);
+    L.globalCompositeOperation = "destination-out"; L.filter = "url(#shadowBody)"; L.drawImage(shC, 0, 0);
+    L.globalCompositeOperation = "source-over"; L.filter = "none"; L.globalAlpha = 1;
+    D.filter = "url(#shadowBody)"; D.drawImage(shC, 0, 0); D.filter = "none";
+  } else {
+    stampOutline(D, shC, "#4f9dff", 4);
+    D.drawImage(tinted(shC, "#03040a"), 0, 0);
+  }
   S.clearRect(0, 0, W, H);
   gooUsed = shadowUsed = false;
 }
@@ -1110,7 +1156,7 @@ function mahoraga(a, b) {
   // 邊緣光（藍白色，讓他在暗處浮出來）
   L.save(); L.globalAlpha = .55; L.beginPath(); L.rect(0, 0, W, base - M * .03); L.clip();
   L.translate(x, top); L.scale(s, s * breathe);
-  L.filter = "drop-shadow(0 0 6px rgba(150,180,255,1))";
+  if (FILTER_OK) L.filter = "drop-shadow(0 0 6px rgba(150,180,255,1))";
   L.drawImage(art.rim, -art.ox, -art.oy);
   L.filter = "none"; L.restore();
   glow(L, x, top + art.headY * s, 260 * s, [[0, "rgba(255,255,255,.1)"], [1, "rgba(0,0,0,0)"]]);
@@ -1212,10 +1258,18 @@ function composite() {
   ctx.translate(W / 2 + sx, H / 2 + sy); ctx.scale(1 + punch, 1 + punch); ctx.translate(-W / 2, -H / 2);
   punch *= .82;
   const c = cover();
-  ctx.filter = `saturate(${grade.tint ? grade.sat : 1}) contrast(${1 + gDark * .4}) brightness(${1 - gDark * .45})${grade.invert ? " invert(1)" : ""}`;
+  const sat = grade.tint ? grade.sat : 1;
+  if (FILTER_OK) ctx.filter = `saturate(${sat}) contrast(${1 + gDark * .4}) brightness(${1 - gDark * .45})${grade.invert ? " invert(1)" : ""}`;
   ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
   ctx.drawImage(video, c.ox, c.oy, c.vw * c.s, c.vh * c.s);
   ctx.restore(); ctx.filter = "none";
+  if (!FILTER_OK) {                                          // 用混合模式模擬調色
+    if (sat < 1) { ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = `rgba(128,128,128,${1 - sat})`; ctx.fillRect(-60, -60, W + 120, H + 120); }
+    const v = Math.round(255 * (1 - gDark * .5));
+    if (v < 255) { ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(-60, -60, W + 120, H + 120); }
+    if (grade.invert) { ctx.globalCompositeOperation = "difference"; ctx.fillStyle = "#fff"; ctx.fillRect(-60, -60, W + 120, H + 120); }
+    ctx.globalCompositeOperation = "source-over";
+  }
   ctx.restore();
   applyWarps();
   ctx.save();
@@ -1226,12 +1280,19 @@ function composite() {
   ctx.fillStyle = v; ctx.fillRect(-60, -60, W + 120, H + 120);
   ctx.drawImage(darkC, 0, 0);
   // bloom 在半解析度算，省下大部分模糊的成本
-  B.clearRect(0, 0, bloomC.width, bloomC.height);
-  B.filter = "blur(12px)"; B.drawImage(lightC, 0, 0, bloomC.width, bloomC.height);
-  B.filter = "blur(3px)"; B.drawImage(lightC, 0, 0, bloomC.width, bloomC.height);
-  B.filter = "none";
   ctx.globalCompositeOperation = "lighter";
-  ctx.drawImage(bloomC, 0, 0, W, H);
+  if (FILTER_OK) {
+    B.clearRect(0, 0, bloomC.width, bloomC.height);
+    B.filter = "blur(12px)"; B.drawImage(lightC, 0, 0, bloomC.width, bloomC.height);
+    B.filter = "blur(3px)"; B.drawImage(lightC, 0, 0, bloomC.width, bloomC.height);
+    B.filter = "none";
+    ctx.drawImage(bloomC, 0, 0, W, H);
+  } else {                                                   // 縮得很小再放大，就是便宜的模糊
+    TY.clearRect(0, 0, tinyC.width, tinyC.height); TY.drawImage(lightC, 0, 0, tinyC.width, tinyC.height);
+    TY2.clearRect(0, 0, tiny2C.width, tiny2C.height); TY2.drawImage(tinyC, 0, 0, tiny2C.width, tiny2C.height);
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(tinyC, 0, 0, W, H); ctx.drawImage(tiny2C, 0, 0, W, H);
+  }
   ctx.drawImage(lightC, 0, 0);
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
