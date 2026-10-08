@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>咒術回戰 術式特效</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: "Noto Sans TC", system-ui, sans-serif; color: #fff; }
+  #video { position: absolute; inset: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); }
+  #fx { position: absolute; inset: 0; width: 100vw; height: 100vh; }
+  #name {
+    position: absolute; left: 50%; top: 8%; transform: translateX(-50%);
+    font-size: 6vmin; font-weight: 900; letter-spacing: .3em; text-shadow: 0 0 20px currentColor;
+    opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap;
+  }
+  #guide {
+    position: absolute; left: 12px; bottom: 12px; background: rgba(0,0,0,.55); padding: 10px 14px;
+    border-radius: 10px; font-size: 13px; line-height: 1.7; backdrop-filter: blur(4px);
+  }
+  #guide b { color: #9cf; }
+  #start {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(circle, #1a0b2e, #000); gap: 20px; z-index: 10;
+  }
+  #start h1 { font-size: 7vmin; margin: 0; letter-spacing: .2em; }
+  #start button { font-size: 20px; padding: 12px 36px; border-radius: 30px; border: 0; background: #7a3cff; color: #fff; cursor: pointer; }
+  #status { font-size: 14px; opacity: .7; }
+</style>
+</head>
+<body>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="fx"></canvas>
+<div id="name"></div>
+<div id="guide">
+  <b>單手張開</b> → 五條悟「蒼」<br>
+  <b>單手食指</b> → 五條悟「赫」<br>
+  <b>一手張開 + 一手食指</b> → 虛式「茈」<br>
+  <b>雙手比 YA</b> → 領域展開「無量空處」<br>
+  <b>握拳快速出拳</b> → 黑閃<br>
+  <b>拇指 + 小指</b> → 伏黑惠「玉犬」<br>
+  <b>食指 + 小指</b> → 夏油傑「咒靈操術」<br>
+  <b>雙手合掌</b> → 脹相「穿血」
+</div>
+<div id="start">
+  <h1>咒術回戰</h1>
+  <button id="btn">開啟鏡頭</button>
+  <div id="status">需要允許相機權限（建議用 Chrome）</div>
+</div>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const video = document.getElementById("video");
+const cv = document.getElementById("fx");
+const ctx = cv.getContext("2d");
+const nameEl = document.getElementById("name");
+const statusEl = document.getElementById("status");
+let W, H;
+function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; }
+addEventListener("resize", resize); resize();
+
+let landmarker;
+document.getElementById("btn").onclick = async () => {
+  statusEl.textContent = "載入模型中…";
+  try {
+    const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    landmarker = await HandLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+        delegate: "GPU"
+      },
+      runningMode: "VIDEO", numHands: 2
+    });
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    await video.play();
+    document.getElementById("start").remove();
+    requestAnimationFrame(loop);
+  } catch (e) { statusEl.textContent = "錯誤：" + e.message; }
+};
+
+// ---------- 座標轉換（影片 cover + 鏡像） ----------
+function toScreen(p) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const s = Math.max(W / vw, H / vh);
+  const ox = (W - vw * s) / 2, oy = (H - vh * s) / 2;
+  return { x: W - (p.x * vw * s + ox), y: p.y * vh * s + oy };
+}
+
+// ---------- 手勢判斷 ----------
+const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function fingers(lm) {
+  const wrist = lm[0];
+  const ext = (tip, pip) => d2(lm[tip], wrist) > d2(lm[pip], wrist) * 1.15;
+  const thumb = d2(lm[4], lm[17]) > d2(lm[3], lm[17]) * 1.1 && d2(lm[4], lm[5]) > d2(lm[0], lm[5]) * 0.45;
+  return [thumb, ext(8, 6), ext(12, 10), ext(16, 14), ext(20, 18)];
+}
+function pose(lm) {
+  const [t, i, m, r, p] = fingers(lm);
+  const n = [i, m, r, p].filter(Boolean).length;
+  if (n === 4) return "open";
+  if (i && m && !r && !p) return "peace";
+  if (i && !m && !r && p) return "horns";
+  if (t && !i && !m && !r && p) return "shaka";
+  if (i && !m && !r && !p) return "point";
+  if (n === 0) return "fist";
+  return "none";
+}
+
+// ---------- 粒子系統 ----------
+const parts = [];
+function spawn(o) { parts.push(Object.assign({ vx: 0, vy: 0, life: 1, decay: 0.02, size: 3, color: "#fff" }, o)); }
+function drawParts() {
+  ctx.globalCompositeOperation = "lighter";
+  for (let k = parts.length - 1; k >= 0; k--) {
+    const q = parts[k];
+    if (q.pull) { const dx = q.pull.x - q.x, dy = q.pull.y - q.y; q.vx += dx * 0.01; q.vy += dy * 0.01; q.vx *= 0.92; q.vy *= 0.92; }
+    q.x += q.vx; q.y += q.vy; q.life -= q.decay;
+    if (q.life <= 0) { parts.splice(k, 1); continue; }
+    ctx.globalAlpha = q.life; ctx.fillStyle = q.color;
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.size * q.life, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+}
+function glowOrb(x, y, r, inner, outer) {
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, "#fff"); g.addColorStop(0.25, inner); g.addColorStop(1, outer);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  ctx.globalCompositeOperation = "source-over";
+}
+
+let t = 0;
+function showName(text, color) { nameEl.textContent = text; nameEl.style.color = color; nameEl.style.opacity = 1; }
+
+// ---------- 各術式 ----------
+function blue(c) { // 蒼：吸引
+  const r = 70 + Math.sin(t * 0.2) * 8;
+  for (let k = 0; k < 6; k++) { const a = Math.random() * 7, R = 150 + Math.random() * 200;
+    spawn({ x: c.x + Math.cos(a) * R, y: c.y + Math.sin(a) * R, pull: c, color: "#4cf", size: 3, decay: 0.015 }); }
+  ctx.strokeStyle = "rgba(80,180,255,.6)"; ctx.lineWidth = 3;
+  for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.ellipse(c.x, c.y, r * 2.2, r * 0.7, t * 0.05 + k, 0, 7); ctx.stroke(); }
+  glowOrb(c.x, c.y, r, "#3af", "rgba(0,60,255,0)");
+}
+function red(c) { // 赫：排斥
+  for (let k = 0; k < 6; k++) { const a = Math.random() * 7, s = 4 + Math.random() * 8;
+    spawn({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: "#f33", size: 4, decay: 0.03 }); }
+  glowOrb(c.x, c.y, 55 + Math.sin(t * 0.3) * 10, "#f22", "rgba(255,0,0,0)");
+}
+function purple(a, b) { // 茈
+  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const r = 120 + Math.sin(t * 0.15) * 15;
+  ctx.fillStyle = "rgba(40,0,60,.35)"; ctx.fillRect(0, 0, W, H);
+  for (let k = 0; k < 10; k++) { const ang = Math.random() * 7, s = 2 + Math.random() * 6;
+    spawn({ x: c.x, y: c.y, vx: Math.cos(ang) * s, vy: Math.sin(ang) * s, color: Math.random() < .5 ? "#a4f" : "#f6f", size: 5, decay: 0.02 }); }
+  glowOrb(a.x, a.y, 40, "#3af", "rgba(0,60,255,0)");
+  glowOrb(b.x, b.y, 40, "#f22", "rgba(255,0,0,0)");
+  glowOrb(c.x, c.y, r, "#b5f", "rgba(120,0,255,0)");
+}
+const stars = Array.from({ length: 300 }, () => ({ x: Math.random(), y: Math.random(), s: Math.random() * 2 }));
+function domain() { // 無量空處
+  ctx.fillStyle = "rgba(0,0,10,.75)"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#fff";
+  for (const s of stars) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 0.05 + s.x * 50);
+    ctx.fillRect(((s.x + t * 0.0005) % 1) * W, s.y * H, s.s, s.s); }
+  ctx.globalAlpha = 1;
+  const cx = W / 2, cy = H / 2;
+  ctx.strokeStyle = "rgba(200,220,255,.5)";
+  for (let k = 0; k < 12; k++) { ctx.lineWidth = 1 + k * 0.3; ctx.beginPath();
+    ctx.arc(cx, cy, ((t * 3 + k * 60) % 720), 0, 7); ctx.stroke(); }
+  glowOrb(cx, cy, 160, "#cdf", "rgba(80,100,255,0)");
+}
+let flash = 0;
+function blackFlash(c) {
+  flash = 12;
+  for (let k = 0; k < 40; k++) { const a = Math.random() * 7, s = 5 + Math.random() * 15;
+    spawn({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: Math.random() < .5 ? "#f00" : "#300", size: 5, decay: 0.03 }); }
+  flash_pt = c;
+}
+let flash_pt = null;
+function drawBlackFlash() {
+  if (flash <= 0) return; flash--;
+  if (flash > 8) { ctx.fillStyle = "rgba(0,0,0,.8)"; ctx.fillRect(0, 0, W, H); }
+  const c = flash_pt;
+  for (let k = 0; k < 9; k++) {
+    ctx.strokeStyle = k % 2 ? "#f11" : "#000"; ctx.lineWidth = k % 2 ? 3 : 7;
+    ctx.beginPath(); ctx.moveTo(c.x, c.y);
+    let x = c.x, y = c.y, a = Math.random() * 7;
+    for (let s = 0; s < 8; s++) { a += (Math.random() - .5) * 1.2; x += Math.cos(a) * 40; y += Math.sin(a) * 40; ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+  showName("黑閃", "#f22");
+}
+function dogs(c) { // 玉犬
+  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H);
+  for (let k = 0; k < 8; k++) spawn({ x: c.x + (Math.random() - .5) * 200, y: c.y + 80, vy: -1 - Math.random() * 3, vx: (Math.random() - .5) * 2, color: "#000", size: 14, decay: 0.012 });
+  ctx.globalCompositeOperation = "source-over";
+  for (const [dx, col] of [[-120, "#eee"], [120, "#111"]]) {
+    const x = c.x + dx, y = c.y + Math.sin(t * 0.2 + dx) * 6;
+    ctx.fillStyle = col; ctx.strokeStyle = "#5af"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - 40, y + 30); ctx.lineTo(x - 35, y - 50); ctx.lineTo(x - 15, y - 20);
+    ctx.lineTo(x + 15, y - 20); ctx.lineTo(x + 35, y - 50); ctx.lineTo(x + 40, y + 30); ctx.lineTo(x, y + 60); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#f33"; ctx.beginPath(); ctx.arc(x - 14, y + 5, 5, 0, 7); ctx.arc(x + 14, y + 5, 5, 0, 7); ctx.fill();
+  }
+}
+const curses = Array.from({ length: 8 }, (_, k) => ({ a: k * 0.785, r: 120 + (k % 3) * 50, s: 0.02 + k * 0.004 }));
+function geto(c) { // 咒靈操術
+  ctx.fillStyle = "rgba(20,0,10,.3)"; ctx.fillRect(0, 0, W, H);
+  for (const q of curses) {
+    q.a += q.s; const x = c.x + Math.cos(q.a) * q.r * 1.5, y = c.y + Math.sin(q.a) * q.r;
+    spawn({ x, y, color: "#6a2", size: 6, decay: 0.05 });
+    glowOrb(x, y, 28, "#9f3", "rgba(60,0,80,0)");
+    ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(x - 7, y - 3, 4, 0, 7); ctx.arc(x + 7, y - 3, 4, 0, 7); ctx.fill();
+  }
+  glowOrb(c.x, c.y, 50, "#525", "rgba(30,0,40,0)");
+}
+function choso(a, b) { // 穿血
+  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const len = Math.max(W, H);
+  const w = 14 + Math.sin(t * 0.8) * 4;
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createLinearGradient(c.x, c.y - w, c.x, c.y + w);
+  g.addColorStop(0, "rgba(120,0,0,0)"); g.addColorStop(.5, "#f22"); g.addColorStop(1, "rgba(120,0,0,0)");
+  ctx.fillStyle = g; ctx.fillRect(c.x - len, c.y - w, len * 2, w * 2);
+  ctx.globalCompositeOperation = "source-over";
+  for (let k = 0; k < 8; k++) { const dir = Math.random() < .5 ? -1 : 1;
+    spawn({ x: c.x, y: c.y, vx: dir * (8 + Math.random() * 12), vy: (Math.random() - .5) * 3, color: "#b00", size: 4, decay: 0.02 }); }
+  glowOrb(c.x, c.y, 60, "#f33", "rgba(150,0,0,0)");
+}
+
+// ---------- 骨架 ----------
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
+function drawHand(pts) {
+  ctx.strokeStyle = "rgba(90,200,255,.9)"; ctx.lineWidth = 2;
+  for (const [a, b] of BONES) { ctx.beginPath(); ctx.moveTo(pts[a].x, pts[a].y); ctx.lineTo(pts[b].x, pts[b].y); ctx.stroke(); }
+  ctx.fillStyle = "#fff"; for (const p of pts) { ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 7); ctx.fill(); }
+}
+
+// ---------- 主迴圈 ----------
+const prevFist = {};
+let lastT = -1, hold = { name: "", n: 0 };
+function loop() {
+  t++;
+  ctx.clearRect(0, 0, W, H);
+  let hands = [];
+  if (video.currentTime !== lastT) {
+    lastT = video.currentTime;
+    const res = landmarker.detectForVideo(video, performance.now());
+    hands = res.landmarks.map(lm => ({ lm, pts: lm.map(toScreen), pose: pose(lm) }));
+    loop.hands = hands;
+  } else hands = loop.hands || [];
+
+  let label = "", color = "#fff";
+  const poses = hands.map(h => h.pose);
+  const center = h => toScreen({ x: (h.lm[0].x + h.lm[9].x) / 2, y: (h.lm[0].y + h.lm[9].y) / 2 });
+
+  if (hands.length === 2) {
+    const [A, B] = hands, ca = center(A), cb = center(B);
+    const close = d2(ca, cb) < Math.min(W, H) * 0.18;
+    if (poses[0] === "open" && poses[1] === "open" && close) { choso(ca, cb); label = "赤血操術・穿血"; color = "#f33"; }
+    else if (poses.includes("open") && poses.includes("point")) {
+      const blueH = poses[0] === "open" ? ca : cb, redH = poses[0] === "open" ? cb : ca;
+      purple(blueH, redH); label = "虛式「茈」"; color = "#c6f";
+    }
+    else if (poses[0] === "peace" && poses[1] === "peace") { domain(); label = "領域展開・無量空處"; color = "#cdf"; }
+  }
+  if (!label) {
+    hands.forEach((h, i) => {
+      const c = center(h), tip = h.pts[8];
+      if (h.pose === "open") { blue(c); label = "術式順轉「蒼」"; color = "#4cf"; }
+      else if (h.pose === "point") { red(tip); label = "術式反轉「赫」"; color = "#f44"; }
+      else if (h.pose === "horns") { geto(c); label = "咒靈操術"; color = "#9f3"; }
+      else if (h.pose === "shaka") { dogs(c); label = "十種影法術・玉犬"; color = "#8af"; }
+    });
+  }
+  // 黑閃：拳頭快速移動
+  hands.forEach((h, i) => {
+    const c = center(h);
+    if (h.pose === "fist") {
+      const p = prevFist[i];
+      if (p && d2(c, p) > Math.min(W, H) * 0.08 && flash <= 0) blackFlash(c);
+      prevFist[i] = c;
+    } else prevFist[i] = null;
+  });
+
+  drawParts();
+  drawBlackFlash();
+  hands.forEach(h => drawHand(h.pts));
+
+  if (flash <= 0) {
+    if (label) showName(label, color); else nameEl.style.opacity = 0;
+  }
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
