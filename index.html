@@ -43,7 +43,7 @@
 <canvas id="main"></canvas>
 <svg width="0" height="0" style="position:absolute">
   <filter id="gooEdge"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 28 -9"/><feMorphology operator="dilate" radius="12"/><feComponentTransfer><feFuncA type="linear" slope="3"/></feComponentTransfer></filter>
-  <filter id="gooFill"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -9"/></filter>
+  <filter id="gooFill"><feGaussianBlur stdDeviation="3.5"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 28 -9"/></filter>
   <filter id="shadowRim"><feGaussianBlur stdDeviation="8"/><feColorMatrix values="0 0 0 0 .2  0 0 0 0 .5  0 0 0 0 1  0 0 0 28 -9"/><feMorphology operator="dilate" radius="5"/><feGaussianBlur stdDeviation="3"/></filter>
   <filter id="curseRim"><feGaussianBlur stdDeviation="7"/><feColorMatrix values="0 0 0 0 .65  0 0 0 0 .25  0 0 0 0 1  0 0 0 28 -9"/><feMorphology operator="dilate" radius="4"/><feGaussianBlur stdDeviation="3"/></filter>
   <filter id="shadowBody"><feGaussianBlur stdDeviation="8"/><feColorMatrix values="0 0 0 0 .01  0 0 0 0 .01  0 0 0 0 .04  0 0 0 28 -9"/></filter>
@@ -110,6 +110,7 @@ function detectFilter() {
 }
 const tmpC = document.createElement("canvas"), TM = tmpC.getContext("2d");
 const ringC = document.createElement("canvas"), RG = ringC.getContext("2d");
+const fillC = document.createElement("canvas"), FL = fillC.getContext("2d");
 const tinyC = document.createElement("canvas"), TY = tinyC.getContext("2d");
 const tiny2C = document.createElement("canvas"), TY2 = tiny2C.getContext("2d");
 function tinted(src, color) {
@@ -121,15 +122,15 @@ function tinted(src, color) {
 // 沒有濾鏡時：把形狀往 8 個方向蓋印，做出外框
 function stampOutline(g, src, color, px) {
   const img = tinted(src, color);
-  for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; g.drawImage(img, Math.cos(a) * px, Math.sin(a) * px); }
+  for (let k = 0; k < 12; k++) { const a = k / 12 * TAU; g.drawImage(img, Math.cos(a) * px, Math.sin(a) * px); }
 }
 const hud = document.getElementById("hud");
 const nameEl = document.getElementById("name"), userEl = document.getElementById("user");
 const statusEl = document.getElementById("status");
 let W, H, M;
 function resize() {
-  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = ringC.width = innerWidth;
-  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = ringC.height = innerHeight;
+  W = cv.width = lightC.width = darkC.width = gooC.width = shC.width = snapC.width = snap2C.width = csC.width = tmpC.width = ringC.width = fillC.width = innerWidth;
+  H = cv.height = lightC.height = darkC.height = gooC.height = shC.height = snapC.height = snap2C.height = csC.height = tmpC.height = ringC.height = fillC.height = innerHeight;
   tinyC.width = Math.ceil(W / 8); tinyC.height = Math.ceil(H / 8); tiny2C.width = Math.ceil(W / 20); tiny2C.height = Math.ceil(H / 20);
   bloomC.width = Math.ceil(W / 2); bloomC.height = Math.ceil(H / 2);
   M = Math.min(W, H);
@@ -707,24 +708,16 @@ function gooBlob(x, y, r) {
 }
 function flushGoo() {
   if (gooUsed) {
-  // 黑色只留外圈（挖掉內部），紅色半透明，看得到底下的手
-  RG.globalCompositeOperation = "copy";
-  if (FILTER_OK) {
-    RG.filter = "url(#gooEdge)"; RG.drawImage(gooC, 0, 0);
-    RG.globalCompositeOperation = "destination-out"; RG.filter = "url(#gooFill)"; RG.drawImage(gooC, 0, 0); RG.filter = "none";
-  } else {
-    RG.clearRect(0, 0, W, H); RG.globalCompositeOperation = "source-over";
-    stampOutline(RG, gooC, "#000", Math.max(10, M * .022));
-    RG.globalCompositeOperation = "destination-out"; RG.drawImage(gooC, 0, 0);
-  }
-  RG.globalCompositeOperation = "source-over";
+  // 先做出平滑的形狀（有濾鏡就用濾鏡融合），黑框直接從同一個形狀往外蓋印，內外邊界才會完全對齊
+  FL.globalCompositeOperation = "copy";
+  if (FILTER_OK) FL.filter = "url(#gooFill)";
+  FL.drawImage(gooC, 0, 0); FL.filter = "none"; FL.globalCompositeOperation = "source-over";
+  RG.clearRect(0, 0, W, H);
+  stampOutline(RG, fillC, "#000", Math.max(6, M * .013));
+  RG.globalCompositeOperation = "destination-out"; RG.drawImage(fillC, 0, 0); RG.globalCompositeOperation = "source-over";
   D.drawImage(ringC, 0, 0);
-  D.globalAlpha = .5;
-  if (FILTER_OK) { D.filter = "url(#gooFill)"; D.drawImage(gooC, 0, 0); D.filter = "none"; } else D.drawImage(gooC, 0, 0);
-  D.globalAlpha = 1;
-  L.globalAlpha = FILTER_OK ? .2 : .12;
-  if (FILTER_OK) { L.filter = "url(#gooFill)"; L.drawImage(gooC, 0, 0); L.filter = "none"; } else L.drawImage(gooC, 0, 0);
-  L.globalAlpha = 1;
+  D.globalAlpha = .5; D.drawImage(fillC, 0, 0); D.globalAlpha = 1;      // 紅色半透明
+  L.globalAlpha = .15; L.drawImage(fillC, 0, 0); L.globalAlpha = 1;
   G.clearRect(0, 0, W, H); gooUsed = false;
   }
   if (curseUsed) {
@@ -754,42 +747,34 @@ function flushGoo() {
   gooUsed = shadowUsed = false;
 }
 const auraState = {};
+// 咒力：從手的外圍不斷冒出的火焰。粒子邊往上飄邊扭動、縮小，在液體圖層裡融成一條條火舌
+const HAND_RING = [0, 1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 17, 13, 9, 5];
 function cursedAura(h, power = 1) {
   setGrade("rgba(90,0,10,.35)", .45 + .1 * power, .6);
-  const pts = h.pts, size = dist(pts[0], pts[9]);
-  const st = auraState[h.key] || (auraState[h.key] = {
-    strands: Array.from({ length: 9 }, (_, k) => ({ i: [4, 8, 12, 16, 20, 5, 9, 13, 17][k], ph: Math.random() * TAU, len: rnd(.7, 1.4) }))
-  });
-  // 1. 手的本體被一團咒力包住
-  const blobs = [];
-  for (let i = 0; i < 21; i++) {
-    const wob = 1 + .18 * Math.sin(t * .22 + i * 1.7) * power;
-    blobs.push([pts[i].x, pts[i].y, size * (i === 0 || i === 9 ? .3 : .21) * wob]);
+  const pts = h.pts, size = dist(pts[0], pts[9]), c = h.c, k = size / 90;
+  // 貼著手緣的一圈底火（讓火焰看起來是從手上長出來的）
+  for (const i of HAND_RING) {
+    const p = pts[i], ox = (p.x - c.x) * .18, oy = (p.y - c.y) * .18;
+    gooBlob(p.x + ox, p.y + oy, size * (.075 + .02 * Math.sin(t * .3 + i)) * (1 + .2 * (power - 1)));
   }
-  for (let i = 0; i < 20; i++) {    // 關節之間補上，讓輪廓連成一整團
-    const a = pts[i], b = pts[i + 1];
-    if ([4, 8, 12, 16].includes(i)) continue;
-    blobs.push([(a.x + b.x) / 2, (a.y + b.y) / 2, size * .19]);
+  // 往上竄的火舌：手緣上幾個固定的噴口，各自連續吐出粒子，連起來就是一條會晃動的火舌
+  const st = auraState[h.key] || (auraState[h.key] = { em: [4, 8, 12, 16, 20, 2, 0, 17].map(i => ({ i, ph: rnd(0, TAU), f: rnd(.08, .16) })) });
+  for (const e of st.em) {
+    const p = pts[e.i], dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy) || 1;
+    const flick = .55 + .45 * Math.sin(t * e.f + e.ph);
+    spawn({
+      flame: 1, x: p.x + dx / d * size * .1, y: p.y + dy / d * size * .1,
+      vx: dx / d * .6 * k, vy: -(2.2 + 1.8 * flick) * k * power,
+      rise: .17 * k, sway: (.5 + .5 * flick) * k, ph: t * .25 + e.ph,
+      w: size * (.045 + .05 * flick) * (.8 + .3 * power), decay: .045 + .02 * (1 - flick)
+    });
   }
-  // 2. 往上飄的觸手（火焰狀）
-  const tendril = [];
-  for (const s of st.strands) {
-    const o = pts[s.i], L0 = size * s.len * (1 + .3 * power);
-    for (let k = 1; k <= 12; k++) {
-      const f = k / 12;
-      tendril.push([o.x + Math.sin(t * .12 + s.ph + f * 3) * size * .22 * f, o.y - L0 * f, size * .17 * (1 - f * .8)]);
-    }
+  glow(L, c.x, c.y, size * .7, [[0, "rgba(255,120,120,.28)"], [.6, "rgba(255,20,40,.12)"], [1, "rgba(0,0,0,0)"]]);
+  // 偶爾竄過手的紅色電流
+  if (Math.random() < .25 * power) {
+    const a = pts[HAND_RING[(Math.random() * HAND_RING.length) | 0]], b = pts[HAND_RING[(Math.random() * HAND_RING.length) | 0]];
+    boltPath(L, [a, { x: (a.x + b.x) / 2 + rnd(-.3, .3) * size, y: (a.y + b.y) / 2 + rnd(-.3, .3) * size }, b], "rgba(255,170,170,.85)", 1.3);
   }
-  for (const [x, y, r] of tendril) gooBlob(x, y, r * 1.2);
-  for (const [x, y, r] of blobs) gooBlob(x, y, r);
-  glow(L, h.c.x, h.c.y, size * .55, [[0, "rgba(255,200,200,.5)"], [.5, "rgba(255,40,40,.25)"], [1, "rgba(0,0,0,0)"]]);
-  // 3. 甩出的咒力水滴
-  for (let k = 0; k < 2 * power; k++) {
-    const p = pts[(Math.random() * 21) | 0], a = rnd(-Math.PI, 0);
-    spawn({ goo: 1, x: p.x, y: p.y, vx: Math.cos(a) * rnd(1, 4) * power, vy: Math.sin(a) * rnd(1, 4) * power - 1, w: size * rnd(.04, .08), decay: .035 });
-  }
-  // 4. 內部閃爍的紅色電流
-  if (Math.random() < .5 * power) bolt(L, h.c.x, h.c.y, size * rnd(.6, 1.2), "rgba(255,180,180,.9)", 1.5, 5);
 }
 
 // 黑閃：每隻手各自獨立，兩手可以同時
@@ -1203,6 +1188,12 @@ function updateFx() {
     if (q.life <= 0) { parts.splice(k, 1); continue; }
     if (q.shadow) { shadowUsed = true; S.fillStyle = "#000"; S.beginPath(); S.arc(q.x, q.y, q.w * Math.min(1, q.life * 1.4), 0, TAU); S.fill(); continue; }
     if (q.goo) { q.vy += .25; gooBlob(q.x, q.y, q.w * Math.min(1, q.life * 1.5) * 1.6); continue; }
+    if (q.flame) {
+      q.vy -= q.rise; q.vx *= .95;
+      q.x += Math.sin(q.ph + (1 - q.life) * 9) * q.sway;
+      gooBlob(q.x, q.y, q.w * Math.pow(q.life, .75));           // 越往上越細，像火舌的尖端
+      continue;
+    }
     g.globalAlpha = Math.min(1, q.life * 1.5);
     if (q.blob) { g.fillStyle = q.color; g.beginPath(); g.arc(q.x, q.y, q.w * q.life, 0, TAU); g.fill(); }
     else { g.strokeStyle = q.color; g.lineWidth = q.w; g.lineCap = "round";
